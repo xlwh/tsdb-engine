@@ -4,7 +4,7 @@
 go get github.com/xlwh/tsdb-engine
 
 # Usage
-	opt := NewOption()
+	opt := tsengine.NewOption()
 	opt.DataDir = "D:/data"
 
 	db, err := NewDBEngine(opt)

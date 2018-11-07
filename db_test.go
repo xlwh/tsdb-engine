@@ -47,7 +47,7 @@ func Test_ReadDisk(t *testing.T) {
 
 	db.Start()
 
-	points, err := db.Get("test", time.Now().UnixNano()/1e6-int64(86400000), time.Now().UnixNano()/1e6+int64(100000))
+	points, err := db.Get("test", 1541552470978, 1541552470988)
 	for _, point := range points {
 		fmt.Println(point.ToString())
 	}

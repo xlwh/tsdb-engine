@@ -60,7 +60,13 @@ func (t *TsdbEngine) Put(point *g.DataPoint) error {
 }
 
 func (t *TsdbEngine) Get(key string, startTime, endTime int64) ([]*g.DataPoint, error) {
-	return t.memTable.Get(key, startTime, endTime)
+	points, err := t.memTable.Get(key, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+	g.Sort(points)
+
+	return points, nil
 }
 
 func (t *TsdbEngine) Close() {

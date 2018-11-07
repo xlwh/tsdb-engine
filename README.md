@@ -1,5 +1,5 @@
 # tsdb-engine
-### 使用方法
+### 使用示例:
 	opt := NewOption()
 	opt.DataDir = "D:/data"
 

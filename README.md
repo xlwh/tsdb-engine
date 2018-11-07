@@ -5,7 +5,10 @@ go get github.com/xlwh/tsdb-engine
 
 # Usage
 	opt := tsengine.NewOption()
-	opt.DataDir = "D:/data"
+	opt.DataDir = "D:/data"   // 数据存储目录
+	opt.ExpireTime = 1800     // 数据过期时间，单位秒
+	opt.PointNumEachBlock = 10   // 在memTable中的最近的数据点的个数，大于这个点的数据将会被刷写到磁盘
+	opt.GcInterval = 2           // 执行过期数据回收检查的时间间隔，单位秒
 
 	db, err := tsengine.NewDBEngine(opt)
 	if err != nil {

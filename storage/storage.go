@@ -5,6 +5,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/xlwh/tsdb-engine/g"
 	"time"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 type Storage struct {
@@ -20,7 +21,34 @@ func NewStorage(option *g.Option) (*Storage, error) {
 		option: option,
 	}
 	s.memIndex = NewMemIndex(option)
-	db, err := leveldb.OpenFile(option.DataDir, nil)
+	levelDBOption := &opt.Options{}
+	levelDBOption.BlockCacheCapacity = option.BlockCacheCapacity
+	levelDBOption.BlockRestartInterval = option.BlockRestartInterval
+	levelDBOption.BlockSize = option.BlockSize
+	levelDBOption.CompactionExpandLimitFactor = option.CompactionExpandLimitFactor
+	levelDBOption.CompactionGPOverlapsFactor = option.CompactionGPOverlapsFactor
+	levelDBOption.CompactionL0Trigger = option.CompactionL0Trigger
+	levelDBOption.CompactionSourceLimitFactor = option.CompactionSourceLimitFactor
+	levelDBOption.CompactionTableSize = option.CompactionTableSize
+	levelDBOption.CompactionTableSizeMultiplier = option.CompactionTableSizeMultiplier
+	levelDBOption.CompactionTotalSize = option.CompactionTotalSize
+	levelDBOption.CompactionTotalSizeMultiplier = option.CompactionTotalSizeMultiplier
+	levelDBOption.DisableBufferPool = option.DisableBufferPool
+	levelDBOption.DisableBlockCache = option.DisableBlockCache
+	levelDBOption.DisableCompactionBackoff = option.DisableCompactionBackoff
+	levelDBOption.DisableLargeBatchTransaction = option.DisableLargeBatchTransaction
+	levelDBOption.ErrorIfExist = option.ErrorIfExist
+	levelDBOption.ErrorIfMissing = option.ErrorIfMissing
+	levelDBOption.IteratorSamplingRate = option.IteratorSamplingRate
+	levelDBOption.NoSync = option.NoSync
+	levelDBOption.NoWriteMerge = option.NoWriteMerge
+	levelDBOption.OpenFilesCacheCapacity = option.OpenFilesCacheCapacity
+	levelDBOption.ReadOnly = option.ReadOnly
+	levelDBOption.WriteBuffer = option.WriteBuffer
+	levelDBOption.WriteL0PauseTrigger = option.WriteL0PauseTrigger
+	levelDBOption.WriteL0SlowdownTrigger = option.WriteL0SlowdownTrigger
+
+	db, err := leveldb.OpenFile(option.DataDir, levelDBOption)
 	if err != nil {
 		return nil, err
 	}

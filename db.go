@@ -18,6 +18,33 @@ func NewOption() *g.Option {
 	o.PointNumEachBlock = 10
 	o.GcInterval = 2
 
+	// 下面是LevelDB相关的一些默认配置
+	o.BlockCacheCapacity = 8 * 1024 * 1024
+	o.BlockRestartInterval = 16
+	o.BlockSize = 4 * 1024
+	o.CompactionExpandLimitFactor = 25
+	o.CompactionGPOverlapsFactor = 10
+	o.CompactionL0Trigger = 4
+	o.CompactionSourceLimitFactor = 1
+	o.CompactionTableSize = 2 * 1024 * 1024
+	o.CompactionTableSizeMultiplier = 1
+	o.CompactionTotalSize = 10 * 1024 * 1024
+	o.CompactionTotalSizeMultiplier = 10
+	o.DisableBufferPool = false
+	o.DisableBlockCache = false
+	o.DisableCompactionBackoff = false
+	o.DisableLargeBatchTransaction = false
+	o.ErrorIfExist = false
+	o.ErrorIfMissing = false
+	o.IteratorSamplingRate = 1 * 1024 * 1024
+	o.NoSync = false
+	o.NoWriteMerge = false
+	o.OpenFilesCacheCapacity = 500
+	o.ReadOnly = false
+	o.WriteBuffer = 4 * 1024 * 1024
+	o.WriteL0PauseTrigger = 12
+	o.WriteL0SlowdownTrigger = 8
+
 	return o
 }
 

@@ -26,6 +26,7 @@ type SeriesData struct {
 
 func (s *SeriesData) put(point *g.DataPoint) error {
 	if s.cs != nil {
+		s.pointNum ++
 		s.cs.Push(point.Timestamp, float64(point.Cnt), point.Sum, point.Max, point.Min)
 
 		if s.sTime > point.Timestamp {
@@ -77,9 +78,14 @@ func (s *SeriesData) close(point *g.DataPoint, store *Storage) {
 	block.Data = s.cs.Bytes()
 
 	store.Put(block)
+
+	s.cs = g.New(point.Timestamp)
+	s.pointNum = 0
 }
 
 func (s *SeriesData) flush(store *Storage) {
+	s.cs.Finish()
+
 	block := &g.DataBlock{}
 	block.Key = s.key
 	block.STime = s.sTime
@@ -139,23 +145,38 @@ func (m *MemTable) getSeries(key string) *SeriesData {
 }
 
 func (m *MemTable) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
+	pointMap := make(map[int64]*g.DataPoint)
+	ret := make([]*g.DataPoint, 0)
+
 	series := m.getSeries(key)
 	if series != nil {
-		if !(sTime > series.eTime || eTime < series.sTime) {
-			points := series.get(sTime, eTime)
+		points := series.get(sTime, eTime)
+		g.Sort(points)
 
-			if len(points) == 0 {
-				return m.store.Get(key, sTime, eTime)
-			} else {
-				return points, nil
-			}
+		// 最近的一个点一般是有问题的，要丢掉
+		for i := 1; i < len(points); i++ {
+			p := points[i]
+			pointMap[p.Timestamp] = p
 		}
-	} else {
-		// 尝试在磁盘上搜索
-		return m.store.Get(key, sTime, eTime)
 	}
 
-	return m.store.Get(key, sTime, eTime)
+	// 从磁盘上也搜索一遍
+	points, err := m.store.Get(key, sTime, eTime)
+	if err != nil {
+		for _, p := range pointMap {
+			ret = append(ret, p)
+		}
+		return ret, nil
+	} else {
+		for _, p := range points {
+			pointMap[p.Timestamp] = p
+		}
+	}
+
+	for _, p := range pointMap {
+		ret = append(ret, p)
+	}
+	return ret, nil
 }
 
 func (m *MemTable) Start() {

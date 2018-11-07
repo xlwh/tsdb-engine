@@ -353,6 +353,7 @@ func (it *Iter) Next() bool {
 		}
 
 		it.min = math.Float64frombits(min)
+
 		return true
 	}
 

@@ -1,5 +1,9 @@
-# tsdb-engine
-### 使用示例:
+这是一个基于针对时序数据，在LevelDB上进行封装的一个磁盘存储引擎。
+
+#Installation
+go get github.com/xlwh/tsdb-engine
+
+# Usage
 	opt := NewOption()
 	opt.DataDir = "D:/data"
 

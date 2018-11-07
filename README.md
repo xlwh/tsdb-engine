@@ -7,7 +7,7 @@ go get github.com/xlwh/tsdb-engine
 	opt := NewOption()
 	opt.DataDir = "D:/data"
 
-	db, err := NewDBEngine(opt)
+	db, err := tsengine.NewDBEngine(opt)
 	if err != nil {
 		fmt.Println(err)
 		return

@@ -1,21 +1,21 @@
 package storage
 
 import (
-	"fmt"
-	"github.com/xlwh/tsdb-engine/g"
-	"sync"
-	"time"
-	"os"
 	"bufio"
 	"encoding/json"
+	"fmt"
+	log "github.com/cihub/seelog"
+	"github.com/xlwh/tsdb-engine/g"
+	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 type MemIndex struct {
-	data    map[string]*g.List
-	dataDir string
-	lock    sync.RWMutex
-	option  *g.Option
+	data   map[string]*g.List
+	lock   sync.RWMutex
+	option *g.Option
 }
 
 type IndexItem struct {
@@ -24,9 +24,13 @@ type IndexItem struct {
 	ETime     int64
 }
 
-func NewMemIndex(option  *g.Option) *MemIndex {
+func NewMemIndex(option *g.Option) *MemIndex {
+	index := &MemIndex{
+		data:   make(map[string]*g.List),
+		option: option,
+	}
 
-	return nil
+	return index
 }
 
 func (b *MemIndex) Start() {
@@ -91,20 +95,20 @@ func (b *MemIndex) gc() []string {
 }
 
 func (b *MemIndex) saverIndex() {
-	fileName := fmt.Sprintf("%s/%s", b.dataDir, "INDEX")
+	fileName := fmt.Sprintf("%s/%s", b.option.DataDir, "INDEX")
 	var err error
 	var file *os.File
 
 	if checkFileIsExist(fileName) {
 		file, err = os.OpenFile(fileName, os.O_CREATE, 0666)
 		if err != nil {
-			// TODO 处理异常
+			log.Warnf("Open index file error:%v", err)
 			return
 		}
 	} else {
 		file, err = os.Create(fileName)
 		if err != nil {
-			// TODO 处理异常
+			log.Warnf("Open index file error:%v", err)
 			return
 		}
 	}
@@ -138,7 +142,7 @@ func (b *MemIndex) loadIndex() {
 	fileName := fmt.Sprintf("%s/%s", b.option.DataDir, "INDEX")
 	file, err := os.Open(fileName)
 	if err != nil {
-		// TODO 处理异常
+		log.Warnf("Open index file error:%v", err)
 		return
 	}
 
@@ -157,7 +161,7 @@ func (b *MemIndex) loadIndex() {
 		var items []IndexItem
 		err = json.Unmarshal([]byte(xs[1]), &items)
 		if err != nil {
-			// TODO 处理异常
+			log.Warnf("Parse index error:%v", err)
 			continue
 		}
 

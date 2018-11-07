@@ -7,11 +7,10 @@ import (
 
 type TsdbEngine struct {
 	memTable *storage.MemTable
-	opt *g.Option
+	opt      *g.Option
 }
 
-
-func  NewOption() *g.Option {
+func NewOption() *g.Option {
 	o := &g.Option{}
 
 	o.DataDir = "./data"
@@ -20,6 +19,17 @@ func  NewOption() *g.Option {
 	o.GcInterval = 2
 
 	return o
+}
+
+func NewPoint(key string, time int64, cnt int64, sum, max, min float64) *g.DataPoint {
+	return &g.DataPoint{
+		Key:       key,
+		Timestamp: time,
+		Cnt:       cnt,
+		Sum:       sum,
+		Max:       max,
+		Min:       min,
+	}
 }
 
 func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
@@ -37,6 +47,12 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 	engine.memTable = memTable
 
 	return engine, nil
+}
+
+func (t *TsdbEngine) Start() {
+	if t.memTable != nil {
+		t.memTable.Start()
+	}
 }
 
 func (t *TsdbEngine) Put(point *g.DataPoint) error {

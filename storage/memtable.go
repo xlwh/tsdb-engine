@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	log "github.com/cihub/seelog"
 	"github.com/xlwh/tsdb-engine/g"
 	"sync"
 )
@@ -66,16 +67,29 @@ func (s *SeriesData) get(sTime, eTime int64) []*g.DataPoint {
 	return points
 }
 
-func (s *SeriesData) close(point *g.DataPoint, store *Storage, series *SeriesData) {
-	series.cs.Finish()
+func (s *SeriesData) close(point *g.DataPoint, store *Storage) {
+	s.cs.Finish()
 
 	block := &g.DataBlock{}
 	block.Key = point.Key
-	block.STime = series.sTime
-	block.ETime = series.eTime
-	block.Data = series.cs.Bytes()
+	block.STime = s.sTime
+	block.ETime = s.eTime
+	block.Data = s.cs.Bytes()
 
 	store.Put(block)
+}
+
+func (s *SeriesData) flush(store *Storage) {
+	block := &g.DataBlock{}
+	block.Key = s.key
+	block.STime = s.sTime
+	block.ETime = s.eTime
+	block.Data = s.cs.Bytes()
+
+	err := store.Put(block)
+	if err != nil {
+		log.Warnf("Flush data error:%v", err)
+	}
 }
 
 func NewMemtable(option *g.Option) (*MemTable, error) {
@@ -83,6 +97,11 @@ func NewMemtable(option *g.Option) (*MemTable, error) {
 		memData: make(map[string]*SeriesData),
 		option:  option,
 	}
+	store, err := NewStorage(option)
+	if err != nil {
+		return nil, err
+	}
+	mem.store = store
 
 	return mem, nil
 }
@@ -93,11 +112,12 @@ func (m *MemTable) PutPoint(point *g.DataPoint) error {
 
 	if series, found := m.memData[point.Key]; found {
 		if series.pointNum >= m.option.PointNumEachBlock {
-			series.close(point, m.store, series)
+			series.close(point, m.store)
 		}
 		return series.put(point)
 	} else {
 		m.memData[point.Key] = &SeriesData{
+			key:      point.Key,
 			cs:       g.New(point.Timestamp),
 			pointNum: 0,
 			sTime:    point.Timestamp,
@@ -116,24 +136,42 @@ func (m *MemTable) getSeries(key string) *SeriesData {
 	} else {
 		return nil
 	}
-
 }
 
 func (m *MemTable) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
-	// 先尝试在memtable中搜索
 	series := m.getSeries(key)
 	if series != nil {
 		if !(sTime > series.eTime || eTime < series.sTime) {
-			return series.get(sTime, eTime), nil
+			points := series.get(sTime, eTime)
+
+			if len(points) == 0 {
+				return m.store.Get(key, sTime, eTime)
+			} else {
+				return points, nil
+			}
 		}
 	} else {
-		return nil, errors.New("Get Series error")
+		// 尝试在磁盘上搜索
+		return m.store.Get(key, sTime, eTime)
 	}
 
-	// 如果在memtable中无法搜索到，则去磁盘上中搜索
 	return m.store.Get(key, sTime, eTime)
 }
 
+func (m *MemTable) Start() {
+	m.store.Start()
+}
+
+func (m *MemTable) flush() {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	for _, series := range m.memData {
+		series.flush(m.store)
+	}
+}
+
 func (m *MemTable) Stop() {
+	m.flush()
 	m.store.Stop()
 }

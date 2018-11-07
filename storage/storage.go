@@ -1,6 +1,7 @@
 package storage
 
 import (
+	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/xlwh/tsdb-engine/g"
 	"time"
@@ -14,8 +15,10 @@ type Storage struct {
 	stop   chan int
 }
 
-func NewStorage(option *g.Option) (*Storage, error ){
-	s := &Storage{}
+func NewStorage(option *g.Option) (*Storage, error) {
+	s := &Storage{
+		option: option,
+	}
 	s.memIndex = NewMemIndex(option)
 	db, err := leveldb.OpenFile(option.DataDir, nil)
 	if err != nil {
@@ -28,15 +31,17 @@ func NewStorage(option *g.Option) (*Storage, error ){
 }
 
 func (s *Storage) Start() {
+	// 加载索引数据
 	s.memIndex.Start()
+	// 运行gc
 	go s.runGc()
 }
 
 func (s *Storage) Put(block *g.DataBlock) error {
 	// 写索引
-	s.memIndex.AddIndex(block.Key, block.STime, block.ETime)
+	key := s.memIndex.AddIndex(block.Key, block.STime, block.ETime)
 	// 写leveldb
-	return s.db.Put([]byte(block.Key), block.Data, nil)
+	return s.db.Put([]byte(key), block.Data, nil)
 }
 
 func (s *Storage) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
@@ -46,10 +51,11 @@ func (s *Storage) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
 		val, err := s.db.Get([]byte(blockName), nil)
 		if err != nil {
 			// TODO log print error
+			log.Warnf("Get in disk error:%v", err)
 		} else {
 			it, err := g.NewIterator(val)
 			if err != nil {
-				// TODO log print error
+				log.Warnf("Get in disk error:%v", err)
 			} else {
 				for it.Next() {
 					t, cnt, sum, max, min := it.Values()

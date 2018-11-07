@@ -248,11 +248,11 @@ func (s *Series) Iter() *Iter {
 	s.Lock()
 	defer s.Unlock()
 
-w := s.bw.clone()
+	w := s.bw.clone()
 
-finish(w)
-iter, _ := bstreamIterator(w)
-return iter
+	finish(w)
+	iter, _ := bstreamIterator(w)
+	return iter
 }
 
 type Iter struct {

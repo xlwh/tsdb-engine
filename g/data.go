@@ -1,5 +1,9 @@
 package g
 
+import (
+	"encoding/json"
+)
+
 type DataPoint struct {
 	Key       string
 	Timestamp int64
@@ -14,4 +18,9 @@ type DataBlock struct {
 	STime int64
 	ETime int64
 	Data  []byte
+}
+
+func (d *DataPoint) ToString() string {
+	x, _ := json.Marshal(d)
+	return string(x)
 }

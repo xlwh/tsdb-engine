@@ -154,7 +154,7 @@ func (m *MemTable) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
 		g.Sort(points)
 
 		// 最近的一个点一般是有问题的，要丢掉
-		for i := 1; i < len(points); i++ {
+		for i := 0; i < len(points); i++ {
 			p := points[i]
 			pointMap[p.Timestamp] = p
 		}

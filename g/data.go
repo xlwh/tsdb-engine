@@ -28,7 +28,7 @@ func (d *DataPoint) ToString() string {
 func Sort(data []*DataPoint) {
 	for i := 0; i < len(data); i++ {
 		for j := i + 1; j < len(data); j++ {
-			if data[i].Timestamp < data[j].Timestamp {
+			if data[i].Timestamp > data[j].Timestamp {
 				data[i], data[j] = data[j], data[i]
 			}
 		}

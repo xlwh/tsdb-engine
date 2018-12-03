@@ -35,6 +35,23 @@ func Test_GetInMemTable(t *testing.T) {
 	time.Sleep(time.Millisecond * 20)
 }
 
+func Test_load(t *testing.T) {
+	opt := NewOption()
+	opt.DataDir = "D:/data"
+
+	db, err := NewDBEngine(opt)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	db.Start()
+
+	time.Sleep(time.Millisecond * 30000)
+	db.Close()
+	time.Sleep(time.Millisecond * 10000)
+}
+
 func Test_ReadDisk(t *testing.T) {
 	opt := NewOption()
 	opt.DataDir = "D:/data"
@@ -47,7 +64,8 @@ func Test_ReadDisk(t *testing.T) {
 
 	db.Start()
 
-	points, err := db.Get("test", 1541552470978, 1541552470988)
+	points, err := db.Get("test", 1541231085000, 1577087085000)
+	//fmt.Println(len(points))
 	for _, point := range points {
 		fmt.Println(point.ToString())
 	}
@@ -76,7 +94,7 @@ func Test_Flush(t *testing.T) {
 		}
 	}
 
-	points, err := db.Get("test", time.Now().UnixNano()/1e6 - 100000000, time.Now().UnixNano()/1e6 + 10000000)
+	points, err := db.Get("test", time.Now().UnixNano()/1e6-100000000, time.Now().UnixNano()/1e6+10000000)
 	for _, point := range points {
 		fmt.Println(point.ToString())
 	}

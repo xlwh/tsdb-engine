@@ -1,13 +1,12 @@
 package storage
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	log "github.com/cihub/seelog"
+	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/xlwh/tsdb-engine/g"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -16,6 +15,7 @@ type MemIndex struct {
 	data   map[string]*g.List
 	lock   sync.RWMutex
 	option *g.Option
+	db     *leveldb.DB
 }
 
 type IndexItem struct {
@@ -24,10 +24,15 @@ type IndexItem struct {
 	ETime     int64
 }
 
-func NewMemIndex(option *g.Option) *MemIndex {
+type KeyInfo struct {
+	Keys []string
+}
+
+func NewMemIndex(option *g.Option, db *leveldb.DB) *MemIndex {
 	index := &MemIndex{
 		data:   make(map[string]*g.List),
 		option: option,
+		db:     db,
 	}
 
 	return index
@@ -95,29 +100,14 @@ func (b *MemIndex) gc() []string {
 }
 
 func (b *MemIndex) saverIndex() {
-	fileName := fmt.Sprintf("%s/%s", b.option.DataDir, "INDEX")
-	var err error
-	var file *os.File
-
-	if checkFileIsExist(fileName) {
-		file, err = os.OpenFile(fileName, os.O_CREATE, 0666)
-		if err != nil {
-			log.Warnf("Open index file error:%v", err)
-			return
-		}
-	} else {
-		file, err = os.Create(fileName)
-		if err != nil {
-			log.Warnf("Open index file error:%v", err)
-			return
-		}
-	}
-
-	defer file.Close()
-	writer := bufio.NewWriter(file)
-
 	b.lock.RLock()
+
+	keyInfo := &KeyInfo{
+		make([]string, 0),
+	}
 	for k, v := range b.data {
+		keyInfo.Keys = append(keyInfo.Keys, k)
+
 		items := make([]*IndexItem, 0)
 		for e := v.Front(); e != nil; e = e.Next() {
 			item, ok := (e.Value).(*IndexItem)
@@ -127,51 +117,50 @@ func (b *MemIndex) saverIndex() {
 		}
 
 		val, _ := json.Marshal(items)
-		data := fmt.Sprintf("%s=%s", k, string(val))
-
-		if len(items) > 0 {
-			writer.Write([]byte(data))
-			writer.Write([]byte("\n"))
+		err := b.db.Put([]byte(fmt.Sprintf("idx-%s", k)), []byte(string(val)), nil)
+		if err != nil {
+			log.Warnf("Put index error:", err)
 		}
 	}
+
+	key, _ := json.Marshal(keyInfo)
+	err := b.db.Put([]byte("series"), []byte(string(key)), nil)
+	if err != nil {
+		log.Warnf("Put keys error")
+	}
+
 	b.lock.RUnlock()
-	writer.Flush()
 }
 
 func (b *MemIndex) loadIndex() {
-	fileName := fmt.Sprintf("%s/%s", b.option.DataDir, "INDEX")
-	file, err := os.Open(fileName)
+	var keys KeyInfo
+	keyData, err := b.db.Get([]byte("series"), nil)
 	if err != nil {
-		log.Warnf("Open index file error:%v", err)
+		log.Warnf("Load index error.%v", err)
 		return
 	}
-
-	defer file.Close()
-	r := bufio.NewReader(file)
-
-	for {
-		data, _, err := r.ReadLine()
+	err = json.Unmarshal(keyData, &keys)
+	if err != nil {
+		log.Warnf("Parse index error:%v", err)
+		return
+	}
+	for _, key := range keys.Keys {
+		data, err := b.db.Get([]byte(fmt.Sprintf("idx-%s", key)), nil)
 		if err != nil {
-			break
-		}
-		xs := strings.Split(string(data), "=")
-		if len(xs) < 2 {
+			log.Warnf("Get index for %s error", key)
 			continue
 		}
 		var items []IndexItem
-		err = json.Unmarshal([]byte(xs[1]), &items)
+		err = json.Unmarshal(data, &items)
 		if err != nil {
-			log.Warnf("Parse index error:%v", err)
+			log.Warnf("Parse index file error:%v", err)
 			continue
 		}
 
 		for _, item := range items {
-			b.AddIndex(xs[0], item.STime, item.ETime)
+			b.AddIndex(key, item.STime, item.ETime)
 		}
 	}
-
-	// 加载完毕就可以先删除了这个文件
-	os.Remove(fileName)
 }
 
 func (b *MemIndex) Stop() {

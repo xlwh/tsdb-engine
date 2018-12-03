@@ -3,9 +3,9 @@ package storage
 import (
 	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/xlwh/tsdb-engine/g"
 	"time"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 type Storage struct {
@@ -20,7 +20,7 @@ func NewStorage(option *g.Option) (*Storage, error) {
 	s := &Storage{
 		option: option,
 	}
-	s.memIndex = NewMemIndex(option)
+
 	levelDBOption := &opt.Options{}
 	levelDBOption.BlockCacheCapacity = option.BlockCacheCapacity
 	levelDBOption.BlockRestartInterval = option.BlockRestartInterval
@@ -53,6 +53,8 @@ func NewStorage(option *g.Option) (*Storage, error) {
 		return nil, err
 	}
 	s.db = db
+	s.memIndex = NewMemIndex(option, db)
+
 	s.stop = make(chan int, 1)
 
 	return s, nil
@@ -139,6 +141,6 @@ Loop:
 
 func (s *Storage) Stop() {
 	s.stop <- 1
-	s.db.Close()
 	s.memIndex.Stop()
+	s.db.Close()
 }

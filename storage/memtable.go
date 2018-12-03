@@ -26,7 +26,7 @@ type SeriesData struct {
 
 func (s *SeriesData) put(point *g.DataPoint) error {
 	if s.cs != nil {
-		s.pointNum ++
+		s.pointNum++
 		s.cs.Push(point.Timestamp, float64(point.Cnt), point.Sum, point.Max, point.Min)
 
 		if s.sTime > point.Timestamp {

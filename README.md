@@ -35,7 +35,7 @@ go get github.com/xlwh/tsdb-engine
 	
 	// 读写简单的时序数据,数据模型:key,timestamp,value
 	for i := 0; i < 10; i++ {
-    	err := db.PutS("test", time.Now().UnixNano()/1e6+int64(i), float64(i))
+    	err := db.Put("test", time.Now().UnixNano()/1e6+int64(i), float64(i))
     	if err != nil {
     		fmt.Printf("Put error:%v \n", err)
     	}

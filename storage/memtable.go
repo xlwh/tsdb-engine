@@ -1,101 +1,22 @@
 package storage
 
 import (
-	"errors"
-	log "github.com/cihub/seelog"
+	"fmt"
+	"github.com/prometheus/common/log"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/xlwh/tsdb-engine/cs/simple"
+	"github.com/xlwh/tsdb-engine/cs/statistics"
 	"github.com/xlwh/tsdb-engine/g"
+	"strings"
 	"sync"
+	"time"
 )
 
 type MemTable struct {
 	memData map[string]*SeriesData
-	store   *Storage
 	option  *g.Option
 
 	lock sync.RWMutex
-}
-
-type SeriesData struct {
-	key      string
-	cs       *g.Series
-	pointNum int64
-
-	sTime int64
-	eTime int64
-}
-
-func (s *SeriesData) put(point *g.DataPoint) error {
-	if s.cs != nil {
-		s.pointNum++
-		s.cs.Push(point.Timestamp, float64(point.Cnt), point.Sum, point.Max, point.Min)
-
-		if s.sTime > point.Timestamp {
-			s.sTime = point.Timestamp
-		}
-
-		if s.eTime < point.Timestamp {
-			s.eTime = point.Timestamp
-		}
-
-		return nil
-	} else {
-		return errors.New("Get cs error")
-	}
-
-}
-
-func (s *SeriesData) get(sTime, eTime int64) []*g.DataPoint {
-	points := make([]*g.DataPoint, 0)
-
-	it, err := g.NewIterator(s.cs.Bytes())
-	if err == nil {
-		for it.Next() {
-			t, cnt, sum, max, min := it.Values()
-			if t >= sTime && t <= eTime {
-				p := &g.DataPoint{
-					Key:       s.key,
-					Timestamp: t,
-					Cnt:       int64(cnt),
-					Sum:       sum,
-					Max:       max,
-					Min:       min,
-				}
-				points = append(points, p)
-			}
-		}
-	}
-
-	return points
-}
-
-func (s *SeriesData) close(point *g.DataPoint, store *Storage) {
-	s.cs.Finish()
-
-	block := &g.DataBlock{}
-	block.Key = point.Key
-	block.STime = s.sTime
-	block.ETime = s.eTime
-	block.Data = s.cs.Bytes()
-
-	store.Put(block)
-
-	s.cs = g.New(point.Timestamp)
-	s.pointNum = 0
-}
-
-func (s *SeriesData) flush(store *Storage) {
-	s.cs.Finish()
-
-	block := &g.DataBlock{}
-	block.Key = s.key
-	block.STime = s.sTime
-	block.ETime = s.eTime
-	block.Data = s.cs.Bytes()
-
-	err := store.Put(block)
-	if err != nil {
-		log.Warnf("Flush data error:%v", err)
-	}
 }
 
 func NewMemtable(option *g.Option) (*MemTable, error) {
@@ -103,96 +24,356 @@ func NewMemtable(option *g.Option) (*MemTable, error) {
 		memData: make(map[string]*SeriesData),
 		option:  option,
 	}
-	store, err := NewStorage(option)
-	if err != nil {
-		return nil, err
-	}
-	mem.store = store
-
 	return mem, nil
 }
 
-func (m *MemTable) PutPoint(point *g.DataPoint) error {
+func (m *MemTable) PutStatistics(key string, t int64, cnt, sum, max, min float64) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	if series, found := m.memData[point.Key]; found {
-		if series.pointNum >= m.option.PointNumEachBlock {
-			series.close(point, m.store)
-		}
-		return series.put(point)
+	if series, found := m.memData[key]; found {
+		return series.put(t, cnt, sum, max, min)
 	} else {
-		m.memData[point.Key] = &SeriesData{
-			key:      point.Key,
-			cs:       g.New(point.Timestamp),
-			pointNum: 0,
-			sTime:    point.Timestamp,
-			eTime:    point.Timestamp,
-		}
-		return m.memData[point.Key].put(point)
+		m.memData[key] = newSeriesData(key, m.option.PointNumEachBlock)
+		return series.put(t, cnt, sum, max, min)
 	}
-	return nil
 }
 
-func (m *MemTable) getSeries(key string) *SeriesData {
+func (m *MemTable) PutSimple(key string, t int64, v float64) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if series, found := m.memData[key]; found {
+		return series.putSimple(t, v)
+	} else {
+		m.memData[key] = newSeriesData(key, m.option.PointNumEachBlock)
+		return series.putSimple(t, v)
+	}
+}
+
+func (m *MemTable) Sync(force bool) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	// 强制把当前的流式压缩关闭
+	if force {
+		for _, v := range m.memData {
+			v.Sync(force)
+		}
+	}
+
+	// 刷新索引数据到持久化存储
+	index.Flush(force)
+}
+
+func (m *MemTable) Gc() {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	for _, v := range m.memData {
+		v.gc(m.option.ExpireTime)
+	}
+}
+
+func (m *MemTable) SeriesReader(key string) (*SeriesData, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if series, found := m.memData[key]; found {
-		return series
+		return series, nil
+	}
+
+	return nil, nil
+}
+
+type SeriesData struct {
+	key       string
+	simpleCs  *simple.Series
+	statisCs  *statistics.Series
+	indexItem *IndexItem
+
+	lock     sync.RWMutex
+	blockMap map[string]*g.DataBlock
+
+	PointNum    int64
+	MaxPointNum int64
+
+	sTime int64
+	eTime int64
+}
+
+func newSeriesData(key string, maxCnt int64) *SeriesData {
+	return &SeriesData{
+		key:         key,
+		indexItem:   NewIndexItem(key),
+		PointNum:    0,
+		MaxPointNum: maxCnt,
+		blockMap:    make(map[string]*g.DataBlock),
+
+		sTime: -1,
+		eTime: -1,
+	}
+}
+
+func (s *SeriesData) put(t int64, cnt, sum, max, min float64) error {
+	if cnt == 1 && sum == max && max == min {
+		return s.putSimple(t, sum)
 	} else {
-		return nil
+		return s.putStatistics(t, cnt, sum, max, min)
 	}
 }
 
-func (m *MemTable) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
-	pointMap := make(map[int64]*g.DataPoint)
-	ret := make([]*g.DataPoint, 0)
+func (s *SeriesData) gc(expireTime int64) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	now := time.Now().UnixNano() / 1e6
 
-	series := m.getSeries(key)
-	if series != nil {
-		points := series.get(sTime, eTime)
-		g.Sort(points)
+	toDelete := make([]string, 0)
 
-		// 最近的一个点一般是有问题的，要丢掉
-		for i := 0; i < len(points); i++ {
-			p := points[i]
-			pointMap[p.Timestamp] = p
+	for k, v := range s.blockMap {
+		if now >= v.ETime+expireTime {
+			toDelete = append(toDelete, k)
 		}
 	}
 
-	// 从磁盘上也搜索一遍
-	points, err := m.store.Get(key, sTime, eTime)
-	if err != nil {
-		for _, p := range pointMap {
-			ret = append(ret, p)
+	for _, name := range toDelete {
+		// delete in mem
+		delete(s.blockMap, name)
+		// delete in disk
+		error := StorageInstance.DeleteBlock(name)
+		if error != nil {
+			log.Warnf("Delete data in disk error.%v", error)
 		}
-		return ret, nil
+	}
+
+	s.indexItem.gc(expireTime)
+}
+
+func (s *SeriesData) putStatistics(t int64, cnt, sum, max, min float64) error {
+	if s.Sync(false) {
+		s.statisCs = statistics.New(t)
+	}
+
+	if s.statisCs == nil {
+		s.statisCs = statistics.New(t)
+	}
+
+	error := s.statisCs.Push(t, cnt, sum, max, min)
+	if error != nil {
+		return error
+	}
+
+	if s.sTime > t {
+		s.sTime = t
+	}
+	if s.eTime < t {
+		s.eTime = t
+	}
+	s.PointNum++
+
+	s.indexItem.UpdateCsRange(t)
+
+	return nil
+}
+
+func (s *SeriesData) putSimple(t int64, v float64) error {
+	if s.Sync(false) {
+		s.simpleCs = simple.New(t)
+	}
+
+	if s.simpleCs == nil {
+		s.simpleCs = simple.New(t)
+	}
+
+	error := s.simpleCs.Push(t, v)
+	if error != nil {
+		return error
+	}
+
+	if s.sTime > t {
+		s.sTime = t
+	}
+	if s.eTime < t {
+		s.eTime = t
+	}
+	s.PointNum++
+
+	s.indexItem.UpdateCsRange(t)
+
+	return nil
+}
+
+func (s *SeriesData) Sync(force bool) bool {
+	wo := &opt.WriteOptions{}
+	// 强制刷到磁盘
+	if force {
+		wo.Sync = true
+	}
+
+	if s.PointNum >= s.MaxPointNum {
+		s.simpleCs.Finish()
+		s.statisCs.Finish()
+
+		synced := true
+
+		blocks := make([]string, 0)
+
+		if s.simpleCs != nil && s.simpleCs.Len() > 0 {
+			name := fmt.Sprintf("%s_simple_index_%d", s.key, time.Now().UnixNano()/1e6)
+			data := s.simpleCs.Bytes()
+
+			block := &g.DataBlock{
+				Name:  name,
+				STime: s.sTime,
+				ETime: s.eTime,
+				Data:  data,
+			}
+
+			s.lock.Lock()
+			s.blockMap[name] = block
+			s.lock.Unlock()
+
+			err := storage.Put([]byte(name), data, wo)
+			if err != nil {
+				synced = false
+			}
+			blocks = append(blocks, name)
+		}
+
+		if s.statisCs != nil && s.statisCs.Len() > 0 {
+			name := fmt.Sprintf("%s_statis_index_%d", s.key, time.Now().UnixNano()/1e6)
+			data := s.statisCs.Bytes()
+
+			block := &g.DataBlock{
+				Name:  name,
+				STime: s.sTime,
+				ETime: s.eTime,
+				Data:  data,
+			}
+
+			s.lock.Lock()
+			s.blockMap[name] = block
+			s.lock.Unlock()
+
+			err := storage.Put([]byte(name), data, wo)
+			if err != nil {
+				synced = false
+			}
+
+			blocks = append(blocks, name)
+		}
+
+		// 只有数据成功写入了磁盘，才更新索引信息
+		if synced {
+			for _, name := range blocks {
+				s.indexItem.PutBlock(name, s.sTime, s.eTime)
+			}
+			s.indexItem.UpdateCsRange(-1)
+		}
+
+		s.PointNum = 0
+		return true
 	} else {
-		for _, p := range points {
-			pointMap[p.Timestamp] = p
+		return false
+	}
+}
+
+func (s *SeriesData) ReadCsSimple(start, end int64) ([]*g.SimpleDataPoint, error) {
+	it := s.simpleCs.Iter()
+	points := make([]*g.SimpleDataPoint, 0)
+	for it.Next() {
+		t, v := it.Values()
+		if t >= start && t <= end {
+			points = append(points, &g.SimpleDataPoint{s.key, t, v})
 		}
 	}
 
-	for _, p := range pointMap {
-		ret = append(ret, p)
+	return points, nil
+}
+
+func (s *SeriesData) ReadSimpleBlocks(names []string, start, end int64) ([]*g.SimpleDataPoint, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	points := make([]*g.SimpleDataPoint, 0)
+
+	for _, name := range names {
+		if block, found := s.blockMap[name]; found {
+			it, err := simple.NewIterator(block.Data)
+			if err != nil {
+				log.Warnf("Parse block error.%v", err)
+				continue
+			}
+			for it.Next() {
+				t, v := it.Values()
+				if t >= start && t <= end {
+					points = append(points, &g.SimpleDataPoint{s.key, t, v})
+				}
+			}
+		}
 	}
-	return ret, nil
+
+	return points, nil
 }
 
-func (m *MemTable) Start() {
-	m.store.Start()
-}
-
-func (m *MemTable) flush() {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-
-	for _, series := range m.memData {
-		series.flush(m.store)
+func (s *SeriesData) ReadCs(start, end int64) ([]*g.DataPoint, error) {
+	points := make([]*g.DataPoint, 0)
+	if s.simpleCs != nil {
+		it := s.simpleCs.Iter()
+		for it.Next() {
+			t, v := it.Values()
+			if t >= start && t <= end {
+				points = append(points, &g.DataPoint{s.key, t, int64(v), float64(v), float64(v), float64(v)})
+			}
+		}
 	}
+
+	if s.statisCs != nil {
+		it := s.statisCs.Iter()
+		for it.Next() {
+			t, cnt, sum, max, min := it.Values()
+			if t >= start && t <= end {
+				points = append(points, &g.DataPoint{s.key, t, int64(cnt), sum, max, min})
+			}
+		}
+	}
+
+	return points, nil
 }
 
-func (m *MemTable) Stop() {
-	m.flush()
-	m.store.Stop()
+func (s *SeriesData) ReadBlocks(names []string, start, end int64) ([]*g.DataPoint, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	points := make([]*g.DataPoint, 0)
+
+	for _, name := range names {
+		if block, found := s.blockMap[name]; found {
+			if strings.Contains(block.Name, "simple") {
+				it, err := simple.NewIterator(block.Data)
+				if err != nil {
+					log.Warnf("Parse block error.%v", err)
+					continue
+				}
+				for it.Next() {
+					t, v := it.Values()
+					if t >= start && t <= end {
+						points = append(points, &g.DataPoint{s.key, t, 1, float64(v), float64(v), float64(v)})
+					}
+				}
+			} else {
+				it, err := statistics.NewIterator(block.Data)
+				if err != nil {
+					log.Warnf("Parse block error.%v", err)
+					continue
+				}
+				for it.Next() {
+					t, cnt, sum, max, min := it.Values()
+					if t >= start && t <= end {
+						points = append(points, &g.DataPoint{s.key, t, int64(cnt), sum, max, min})
+					}
+				}
+			}
+		}
+	}
+
+	return points, nil
 }

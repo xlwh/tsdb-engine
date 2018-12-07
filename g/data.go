@@ -13,8 +13,14 @@ type DataPoint struct {
 	Min       float64
 }
 
+type SimpleDataPoint struct {
+	Key       string
+	Timestamp int64
+	Value     float64
+}
+
 type DataBlock struct {
-	Key   string
+	Name  string
 	STime int64
 	ETime int64
 	Data  []byte
@@ -35,3 +41,12 @@ func Sort(data []*DataPoint) {
 	}
 }
 
+func SortSimple(data []*SimpleDataPoint) {
+	for i := 0; i < len(data); i++ {
+		for j := i + 1; j < len(data); j++ {
+			if data[i].Timestamp > data[j].Timestamp {
+				data[i], data[j] = data[j], data[i]
+			}
+		}
+	}
+}

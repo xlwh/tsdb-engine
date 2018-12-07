@@ -1,4 +1,4 @@
-package g
+package statistics
 
 import (
 	"bytes"
@@ -9,6 +9,9 @@ import (
 	"math"
 	"math/bits"
 	"sync"
+
+	"errors"
+	log "github.com/cihub/seelog"
 )
 
 type Series struct {
@@ -32,13 +35,11 @@ type Series struct {
 	maxTrailing uint8
 	minLeading  uint8
 	minTrailing uint8
-	avgLeading  uint8
-	avgTrailing uint8
 
 	finished bool
 
 	tDelta  int32
-	dataCnt int32
+	dataNum int64
 }
 
 func New(t0 int64) *Series {
@@ -48,7 +49,6 @@ func New(t0 int64) *Series {
 		sumLeading: ^uint8(0),
 		maxLeading: ^uint8(0),
 		minLeading: ^uint8(0),
-		dataCnt:    1,
 	}
 
 	s.bw.writeBits(uint64(t0), 64)
@@ -82,17 +82,13 @@ func (s *Series) Finish() {
 	s.Unlock()
 }
 
-func (s *Series) DataLen() int32 {
+func (s *Series) Push(t int64, cnt, sum, max, min float64) error {
+	if t < s.T0 {
+		log.Warnf("Data not valid,skip.T0=%d, data time=%d", s.T0, t)
+		return errors.New("Error time")
+	}
 	s.Lock()
 	defer s.Unlock()
-
-	return s.dataCnt
-}
-
-func (s *Series) Push(t int64, cnt, sum, max, min float64) {
-	s.Lock()
-	defer s.Unlock()
-	s.dataCnt++
 
 	if s.t == 0 {
 		// first point
@@ -107,7 +103,7 @@ func (s *Series) Push(t int64, cnt, sum, max, min float64) {
 		s.bw.writeBits(math.Float64bits(sum), 64)
 		s.bw.writeBits(math.Float64bits(max), 64)
 		s.bw.writeBits(math.Float64bits(min), 64)
-		return
+		return nil
 	}
 
 	tDelta := int32(t - s.t)
@@ -242,6 +238,13 @@ func (s *Series) Push(t int64, cnt, sum, max, min float64) {
 	s.sum = sum
 	s.max = max
 	s.min = min
+	s.dataNum++
+
+	return nil
+}
+
+func (s *Series) Len() int64 {
+	return s.dataNum
 }
 
 func (s *Series) Iter() *Iter {
@@ -644,14 +647,12 @@ func (s *Series) MarshalBinary() ([]byte, error) {
 	em.write(s.sumLeading)
 	em.write(s.maxLeading)
 	em.write(s.minLeading)
-	em.write(s.avgLeading)
 	em.write(s.t)
 	em.write(s.tDelta)
 	em.write(s.cntTrailing)
 	em.write(s.sumTrailing)
 	em.write(s.maxTrailing)
 	em.write(s.minTrailing)
-	em.write(s.avgTrailing)
 	em.write(s.cnt)
 	em.write(s.sum)
 	em.write(s.max)
@@ -675,14 +676,12 @@ func (s *Series) UnmarshalBinary(b []byte) error {
 	em.read(&s.sumLeading)
 	em.read(&s.maxLeading)
 	em.read(&s.minLeading)
-	em.read(&s.avgLeading)
 	em.read(&s.t)
 	em.read(&s.tDelta)
 	em.read(&s.cntTrailing)
 	em.read(&s.sumTrailing)
 	em.read(&s.maxTrailing)
 	em.read(&s.minTrailing)
-	em.read(&s.avgTrailing)
 	em.read(&s.cnt)
 	em.read(&s.sum)
 	em.read(&s.max)

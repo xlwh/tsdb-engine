@@ -1,13 +1,19 @@
 package tsengine
 
 import (
+	"errors"
 	"github.com/xlwh/tsdb-engine/g"
 	"github.com/xlwh/tsdb-engine/storage"
+	"time"
 )
 
 type TsdbEngine struct {
 	memTable *storage.MemTable
-	opt      *g.Option
+	index    *storage.Index
+
+	opt *g.Option
+
+	stop chan bool
 }
 
 func NewOption() *g.Option {
@@ -17,6 +23,7 @@ func NewOption() *g.Option {
 	o.ExpireTime = 3600
 	o.PointNumEachBlock = 10
 	o.GcInterval = 2
+	o.FlushInterVal = 60 // 主动刷盘时间
 
 	// 下面是LevelDB相关的一些默认配置
 	o.BlockCacheCapacity = 8 * 1024 * 1024
@@ -65,7 +72,8 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 	}
 
 	engine := &TsdbEngine{
-		opt: option,
+		opt:   option,
+		index: storage.GetIndex(),
 	}
 	memTable, err := storage.NewMemtable(option)
 	if err != nil {
@@ -73,29 +81,137 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 	}
 	engine.memTable = memTable
 
+	_, err = storage.NewStorage(option)
+	if err != nil {
+		return nil, err
+	}
+
 	return engine, nil
 }
 
 func (t *TsdbEngine) Start() {
-	if t.memTable != nil {
-		t.memTable.Start()
+	go t.runTask()
+}
+
+// 执行gc任务和主动刷meta数据到磁盘
+func (t *TsdbEngine) runTask() {
+	gcTimer := time.NewTicker(time.Duration(t.opt.GcInterval) * time.Second)
+	flushTimer := time.NewTicker(time.Duration(t.opt.FlushInterVal) * time.Second)
+Loop:
+	for {
+		select {
+		case <-gcTimer.C:
+			t.memTable.Gc()
+		case <-flushTimer.C:
+			t.memTable.Sync(false)
+		case <-t.stop:
+			t.memTable.Sync(true)
+			break Loop
+		}
 	}
 }
 
-func (t *TsdbEngine) Put(point *g.DataPoint) error {
-	return t.memTable.PutPoint(point)
+func (eg *TsdbEngine) Put(key string, t int64, v float64) error {
+	if t < time.Now().UnixNano()/1e6-eg.opt.ExpireTime {
+		return errors.New("Data expire")
+	}
+	return eg.memTable.PutSimple(key, t, v)
 }
 
-func (t *TsdbEngine) Get(key string, startTime, endTime int64) ([]*g.DataPoint, error) {
-	points, err := t.memTable.Get(key, startTime, endTime)
+func (eg *TsdbEngine) Get(key string, startTime, endTime int64) ([]*g.SimpleDataPoint, error) {
+	indexItem, err := eg.index.GetIndexItem(key)
 	if err != nil {
 		return nil, err
 	}
-	g.Sort(points)
 
-	return points, nil
+	result := make([]*g.SimpleDataPoint, 0)
+
+	allPos, err := indexItem.Pos(startTime, endTime)
+	for _, pos := range allPos {
+		points, err := eg.getSimpleByPos(key, pos, startTime, endTime)
+		if err != nil {
+			for _, p := range points {
+				result = append(result, p)
+			}
+		}
+	}
+
+	g.SortSimple(result)
+	return result, nil
 }
 
-func (t *TsdbEngine) Close() {
-	t.memTable.Stop()
+func (eg *TsdbEngine) getSimpleByPos(key string, pos *storage.PosInfo, start, end int64) ([]*g.SimpleDataPoint, error) {
+	reader, _ := eg.memTable.SeriesReader(key)
+	blocks := make([]string, 0)
+
+	switch pos.Pos {
+	case "cs":
+		if reader != nil {
+			return reader.ReadCsSimple(start, end)
+		}
+	case "mem":
+		blocks = append(blocks, pos.BlockName)
+		if reader != nil {
+			return reader.ReadSimpleBlocks(blocks, start, end)
+		}
+	case "disk":
+		return storage.StorageInstance.ReadSimple(key, pos.BlockName, start, end)
+	}
+
+	return nil, nil
+}
+
+func (eg *TsdbEngine) getByPos(key string, pos *storage.PosInfo, start, end int64) ([]*g.DataPoint, error) {
+	reader, _ := eg.memTable.SeriesReader(key)
+	blocks := make([]string, 0)
+
+	switch pos.Pos {
+	case "cs":
+		if reader != nil {
+			return reader.ReadCs(start, end)
+		}
+	case "mem":
+		blocks = append(blocks, pos.BlockName)
+		if reader != nil {
+			return reader.ReadBlocks(blocks, start, end)
+		}
+	case "disk":
+		return storage.StorageInstance.Read(key, pos.BlockName, start, end)
+	}
+
+	return nil, nil
+}
+
+func (eg *TsdbEngine) PutStatics(data *g.DataPoint) error {
+	if data.Timestamp < time.Now().UnixNano()/1e6-eg.opt.ExpireTime {
+		return errors.New("Data expire")
+	}
+	return eg.memTable.PutStatistics(data.Key, data.Timestamp, float64(data.Cnt), data.Sum, data.Max, data.Min)
+}
+
+func (eg *TsdbEngine) GetStatics(key string, startTime, endTime int64) ([]*g.DataPoint, error) {
+	indexItem, err := eg.index.GetIndexItem(key)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*g.DataPoint, 0)
+
+	allPos, err := indexItem.Pos(startTime, endTime)
+	for _, pos := range allPos {
+		points, err := eg.getByPos(key, pos, startTime, endTime)
+		if err != nil {
+			for _, p := range points {
+				result = append(result, p)
+			}
+		}
+	}
+
+	g.Sort(result)
+	return result, nil
+}
+
+func (eg *TsdbEngine) Close() {
+	eg.stop <- true
+	storage.StorageInstance.Stop()
 }

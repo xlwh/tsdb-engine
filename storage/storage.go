@@ -1,17 +1,17 @@
 package storage
 
 import (
-	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/xlwh/tsdb-engine/cs/simple"
+	"github.com/xlwh/tsdb-engine/cs/statistics"
 	"github.com/xlwh/tsdb-engine/g"
-	"time"
 )
 
-type Storage struct {
-	memIndex *MemIndex
-	db       *leveldb.DB
+var StorageInstance *Storage
 
+type Storage struct {
+	db     *leveldb.DB
 	option *g.Option
 	stop   chan int
 }
@@ -53,94 +53,72 @@ func NewStorage(option *g.Option) (*Storage, error) {
 		return nil, err
 	}
 	s.db = db
-	s.memIndex = NewMemIndex(option, db)
 
 	s.stop = make(chan int, 1)
 
+	StorageInstance = s
 	return s, nil
 }
 
-func (s *Storage) Start() {
-	// 加载索引数据
-	s.memIndex.Start()
-	// 运行gc
-	go s.runGc()
+func (s *Storage) PutBlock(block *g.DataBlock) error {
+	return s.db.Put([]byte(block.Name), block.Data, nil)
 }
 
-func (s *Storage) Put(block *g.DataBlock) error {
-	// 写索引
-	key := s.memIndex.AddIndex(block.Key, block.STime, block.ETime)
-	// 写leveldb
-	return s.db.Put([]byte(key), block.Data, nil)
+func (s *Storage) Put(key, value []byte, wo *opt.WriteOptions) error {
+	return s.db.Put([]byte(key), value, wo)
 }
 
-func (s *Storage) Get(key string, sTime, eTime int64) ([]*g.DataPoint, error) {
-	allBlock := s.memIndex.GetBlocks(key, sTime, eTime)
-	ret := make([]*g.DataPoint, 0)
-	for _, blockName := range allBlock {
-		val, err := s.db.Get([]byte(blockName), nil)
-		if err != nil {
-			// TODO log print error
-			log.Warnf("Get in disk error:%v", err)
-		} else {
-			it, err := g.NewIterator(val)
-			if err != nil {
-				log.Warnf("Get in disk error:%v", err)
-			} else {
-				for it.Next() {
-					t, cnt, sum, max, min := it.Values()
-					if t >= sTime && t <= eTime {
-						p := &g.DataPoint{
-							Key:       key,
-							Timestamp: t,
-							Cnt:       int64(cnt),
-							Sum:       sum,
-							Max:       max,
-							Min:       min,
-						}
-						ret = append(ret, p)
-					}
-				}
-			}
+func (s *Storage) Get(key []byte, ro *opt.ReadOptions) (value []byte, err error) {
+	return s.db.Get(key, ro)
+}
+
+func (s *Storage) ReadSimple(key, name string, start, end int64) ([]*g.SimpleDataPoint, error) {
+	data, err := s.db.Get([]byte(name), nil)
+	if err != nil {
+		return nil, err
+	}
+	it, err := simple.NewIterator(data)
+	if err != nil {
+		return nil, err
+	}
+
+	points := make([]*g.SimpleDataPoint, 0)
+	for it.Next() {
+		t, v := it.Values()
+		if t >= start && t <= end {
+			points = append(points, &g.SimpleDataPoint{key, t, v})
 		}
 	}
 
-	return ret, nil
+	return points, nil
 }
 
-func (s *Storage) gc() {
-	allBlock := s.memIndex.gc()
-	for _, blockName := range allBlock {
-		err := s.db.Delete([]byte(blockName), nil)
-		if err != nil {
-			// TODO 处理异常
+func (s *Storage) Read(key, name string, start, end int64) ([]*g.DataPoint, error) {
+	data, err := s.db.Get([]byte(name), nil)
+	if err != nil {
+		return nil, err
+	}
+	it, err := statistics.NewIterator(data)
+	if err != nil {
+		return nil, err
+	}
+
+	points := make([]*g.DataPoint, 0)
+	for it.Next() {
+		t, cnt, sum, max, min := it.Values()
+		if t >= start && t <= end {
+			points = append(points, &g.DataPoint{key, t, int64(cnt), sum, max, min})
 		}
 	}
+
+	return points, nil
 }
 
-func (s *Storage) runGc() {
-	nextRun := time.Now().Unix() + s.option.GcInterval
-Loop:
-	for {
-		select {
-		case <-s.stop:
-			{
-				break Loop
-			}
-		default:
-			{
-				if time.Now().Unix() >= nextRun {
-					s.gc()
-					nextRun = time.Now().Unix() + s.option.GcInterval
-				}
-			}
-		}
-		time.Sleep(time.Millisecond * 2)
-	}
+func (s *Storage) DeleteBlock(name string) error {
+	return s.db.Delete([]byte(name), nil)
 }
 
 func (s *Storage) Stop() {
 	s.stop <- 1
-	s.memIndex.Stop()
 	s.db.Close()
 }

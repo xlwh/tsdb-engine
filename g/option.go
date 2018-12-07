@@ -5,6 +5,7 @@ type Option struct {
 	ExpireTime        int64
 	PointNumEachBlock int64
 	GcInterval        int64
+	FlushInterVal     int64
 
 	// 下面是底层LevelDB的配置参数
 

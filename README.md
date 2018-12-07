@@ -9,6 +9,7 @@ go get github.com/xlwh/tsdb-engine
 	opt.ExpireTime = 1800     // 数据过期时间，单位秒
 	opt.PointNumEachBlock = 10   // 在memTable中的最近的数据点的个数，大于这个点的数据将会被刷写到磁盘
 	opt.GcInterval = 2           // 执行过期数据回收检查的时间间隔，单位秒
+	opt.FlushInterval = 60       // 自动刷新内存索引数据到磁盘的周期
 
 	db, err := tsengine.NewDBEngine(opt)
 	if err != nil {
@@ -17,20 +18,34 @@ go get github.com/xlwh/tsdb-engine
 	}
 
 	db.Start()
-
+    
+    // 读写统计值:数据模型为key,timestamp,cnt,sum,max,min
 	for i := 0; i < 10; i++ {
 		point := NewPoint("test", time.Now().UnixNano()/1e6+int64(i), int64(i), float64(i), float64(i), float64(i))
-		err := db.Put(point)
+		err := db.PutStatics(point)
 		if err != nil {
 			fmt.Printf("Put error:%v \n", err)
 		}
 	}
 
-	points, err := db.Get("test", time.Now().UnixNano()/1e6, time.Now().UnixNano()/1e6+int64(10))
+	points, err := db.GetStatics("test", time.Now().UnixNano()/1e6, time.Now().UnixNano()/1e6+int64(10))
 	for _, point := range points {
 		fmt.Println(point.ToString())
 	}
-
+	
+	// 读写简单的时序数据,数据模型:key,timestamp,value
+	for i := 0; i < 10; i++ {
+    	err := db.PutS("test", time.Now().UnixNano()/1e6+int64(i), float64(i))
+    	if err != nil {
+    		fmt.Printf("Put error:%v \n", err)
+    	}
+    }
+    
+    points, err := db.Get("test", time.Now().UnixNano()/1e6, time.Now().UnixNano()/1e6+int64(10))
+    for _, point := range points {
+    	fmt.Println(point.ToString())
+    }
+	
 	db.Close()
 
 # 底层LevelDB的一些配置选项

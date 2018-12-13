@@ -212,10 +212,15 @@ func (eg *TsdbEngine) GetStatics(key string, startTime, endTime int64) ([]*g.Dat
 	return result, nil
 }
 
-func (eg *TsdbEngine) Stop() {
-	eg.stop <- true
+func (eg *TsdbEngine) Flush() {
 	if eg.memTable != nil {
 		eg.memTable.Sync(true)
 	}
+	time.Sleep(time.Millisecond * 10)
+}
+
+func (eg *TsdbEngine) Stop() {
+	eg.Flush()
+	eg.stop <- true
 	storage.StorageInstance.Stop()
 }

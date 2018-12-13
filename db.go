@@ -85,6 +85,7 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 	if err != nil {
 		return nil, err
 	}
+	g.WG.Add(1)
 	engine.memTable = memTable
 
 	return engine, nil
@@ -222,5 +223,6 @@ func (eg *TsdbEngine) Flush() {
 func (eg *TsdbEngine) Stop() {
 	eg.Flush()
 	eg.stop <- true
+	g.WG.Wait()
 	storage.StorageInstance.Stop()
 }

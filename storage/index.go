@@ -6,6 +6,7 @@ import (
 	"fmt"
 	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/xlwh/tsdb-engine/g"
 	"sync"
 	"time"
 )
@@ -134,6 +135,12 @@ func (i *Index) Flush(force bool) {
 	error := StorageInstance.Put([]byte("meta"), []byte(string(data)), wo)
 	if err != nil {
 		log.Warnf("Save meta error.%v", error)
+	} else {
+		log.Debugf("Success to write meta info")
+	}
+
+	if force {
+		g.WG.Done()
 	}
 }
 

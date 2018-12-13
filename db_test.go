@@ -1,10 +1,10 @@
 package tsengine
 
 import (
+	"fmt"
+	"os"
 	"testing"
 	"time"
-	"os"
-	"fmt"
 )
 
 /*
@@ -14,7 +14,7 @@ import (
 		3.简单的时序数据的读写(In disk)
 		5.简单的时序数据的读写(数据分布在cs,Mem,disk)
 		6.数据的过期清理策略
- */
+*/
 
 func Test_simple_write_read(t *testing.T) {
 	os.RemoveAll("./data")
@@ -32,15 +32,15 @@ func Test_simple_write_read(t *testing.T) {
 
 	db.Start()
 
-	err = db.Put("test", time.Now().UnixNano() / 1e6, 20)
-	err = db.Put("test", time.Now().UnixNano() / 1e6 + 60000, 30)
+	err = db.Put("test", time.Now().UnixNano()/1e6, 20)
+	err = db.Put("test", time.Now().UnixNano()/1e6+60000, 30)
 
 	if err != nil {
 		t.Errorf("put error:%v", err)
 		t.Failed()
 	}
 
-	points, err := db.Get("test", time.Now().UnixNano() / 1e6, time.Now().UnixNano() / 1e6 + 60000)
+	points, err := db.Get("test", time.Now().UnixNano()/1e6, time.Now().UnixNano()/1e6+60000)
 
 	if err != nil {
 		t.Errorf("read error:%v", err)
@@ -75,15 +75,15 @@ func Test_statics_write_read(t *testing.T) {
 
 	db.Start()
 
-	err = db.PutStatics(NewPoint("test", time.Now().UnixNano() / 1e6, int64(1), float64(1), float64(1), float64(1)))
-	err = db.PutStatics(NewPoint("test", time.Now().UnixNano() / 1e6 + 60000, int64(1), float64(2), float64(2), float64(2)))
+	err = db.PutStatics(NewPoint("test", time.Now().UnixNano()/1e6, int64(1), float64(1), float64(1), float64(1)))
+	err = db.PutStatics(NewPoint("test", time.Now().UnixNano()/1e6+60000, int64(1), float64(2), float64(2), float64(2)))
 
 	if err != nil {
 		t.Errorf("put error:%v", err)
 		t.Failed()
 	}
 
-	points, err := db.GetStatics("test", time.Now().UnixNano() / 1e6, time.Now().UnixNano() / 1e6 + 60000)
+	points, err := db.GetStatics("test", time.Now().UnixNano()/1e6, time.Now().UnixNano()/1e6+60000)
 
 	if err != nil {
 		t.Errorf("read error:%v", err)
@@ -120,7 +120,7 @@ func Test_write_disk(t *testing.T) {
 	db.Start()
 
 	start := time.Now().UnixNano() / 1e6
-	end := time.Now().UnixNano() / 1e6 + 60000
+	end := time.Now().UnixNano()/1e6 + 1000
 	err = db.Put("test", start, 20)
 	err = db.Put("test", end, 30)
 
@@ -147,12 +147,14 @@ func Test_write_disk(t *testing.T) {
 
 	// 关闭引擎，以把数据写到磁盘
 	db.Stop()
+
+	time.Sleep(time.Millisecond * 10)
 }
 
 func Test_load_in_disk(t *testing.T) {
 	// 重新加载数据
-	start := time.Now().UnixNano() / 1e6 - 10000
-	end := time.Now().UnixNano() / 1e6 + 70000
+	start := time.Now().UnixNano()/1e6 - 10000
+	end := time.Now().UnixNano()/1e6 + 70000
 	db2, err := NewDBEngine(nil)
 	if err != nil {
 		t.Errorf("Create engine error.%v", err)
@@ -178,6 +180,7 @@ func Test_load_in_disk(t *testing.T) {
 	}
 
 	db2.Stop()
+	os.RemoveAll("./data")
 }
 
 func Test_simple_gc(t *testing.T) {
@@ -197,7 +200,7 @@ func Test_simple_gc(t *testing.T) {
 	db.Start()
 
 	for i := 0; i < 100; i++ {
-		db.Put("test", time.Now().UnixNano() / 1e6 + int64(i), 20)
+		db.Put("test", time.Now().UnixNano()/1e6+int64(i), 20)
 	}
 
 	time.Sleep(time.Minute * 2)
@@ -221,7 +224,7 @@ func Benchmark_simple_write(b *testing.B) {
 	db.Start()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		db.Put("test", time.Now().UnixNano() / 1e6 + int64(i), 20)
+		db.Put("test", time.Now().UnixNano()/1e6+int64(i), 20)
 	}
 
 	b.ReportAllocs()

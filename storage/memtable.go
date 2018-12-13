@@ -35,8 +35,9 @@ func (m *MemTable) PutStatistics(key string, t int64, cnt, sum, max, min float64
 	if series, found := m.memData[key]; found {
 		return series.put(t, cnt, sum, max, min)
 	} else {
-		m.memData[key] = newSeriesData(key, m.option.PointNumEachBlock)
-		return series.put(t, cnt, sum, max, min)
+		s := newSeriesData(key, m.option.PointNumEachBlock)
+		m.memData[key] = s
+		return s.put(t, cnt, sum, max, min)
 	}
 }
 

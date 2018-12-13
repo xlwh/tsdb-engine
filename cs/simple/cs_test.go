@@ -8,6 +8,8 @@ import (
 func Test_cs(t *testing.T) {
 	cs := New(10)
 	cs.Push(5, float64(-10))
+	cs.Push(14, float64(100))
+	cs.Push(10, float64(200))
 	for i := 1; i < 10; i++ {
 		cs.Push(10+int64(i), float64(i))
 	}

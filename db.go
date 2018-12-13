@@ -201,7 +201,7 @@ func (eg *TsdbEngine) GetStatics(key string, startTime, endTime int64) ([]*g.Dat
 	allPos, err := indexItem.Pos(startTime, endTime)
 	for _, pos := range allPos {
 		points, err := eg.getByPos(key, pos, startTime, endTime)
-		if err != nil {
+		if err == nil {
 			for _, p := range points {
 				result = append(result, p)
 			}

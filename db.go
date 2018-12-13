@@ -212,7 +212,7 @@ func (eg *TsdbEngine) GetStatics(key string, startTime, endTime int64) ([]*g.Dat
 	return result, nil
 }
 
-func (eg *TsdbEngine) Close() {
+func (eg *TsdbEngine) Stop() {
 	eg.stop <- true
 	if eg.memTable != nil {
 		eg.memTable.Sync(true)

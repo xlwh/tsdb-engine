@@ -56,7 +56,7 @@ func Test_simple_write_read(t *testing.T) {
 		t.Failed()
 	}
 
-	db.Close()
+	db.Stop()
 }
 
 func Test_statics_write_read(t *testing.T) {
@@ -99,7 +99,7 @@ func Test_statics_write_read(t *testing.T) {
 		t.Failed()
 	}
 
-	db.Close()
+	db.Stop()
 }
 
 func Test_write_disk(t *testing.T) {
@@ -146,8 +146,7 @@ func Test_write_disk(t *testing.T) {
 	}
 
 	// 关闭引擎，以把数据写到磁盘
-	db.Close()
-	db = nil
+	db.Stop()
 }
 
 func Test_load_in_disk(t *testing.T) {
@@ -178,7 +177,7 @@ func Test_load_in_disk(t *testing.T) {
 		t.Failed()
 	}
 
-	db2.Close()
+	db2.Stop()
 }
 
 func Test_simple_gc(t *testing.T) {
@@ -202,7 +201,7 @@ func Test_simple_gc(t *testing.T) {
 	}
 
 	time.Sleep(time.Minute * 2)
-	db.Close()
+	db.Stop()
 }
 
 func Benchmark_simple_write(b *testing.B) {
@@ -230,5 +229,5 @@ func Benchmark_simple_write(b *testing.B) {
 
 	fmt.Println("Total write num", b.N)
 
-	db.Close()
+	db.Stop()
 }

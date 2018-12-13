@@ -360,7 +360,7 @@ func (s *SeriesData) ReadCs(start, end int64) ([]*g.DataPoint, error) {
 		for it.Next() {
 			t, v := it.Values()
 			if t >= start && t <= end {
-				points = append(points, &g.DataPoint{s.key, t, int64(v), float64(v), float64(v), float64(v)})
+				points = append(points, &g.DataPoint{s.key, t, 1, float64(v), float64(v), float64(v)})
 			}
 		}
 	}

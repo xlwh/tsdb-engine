@@ -72,9 +72,10 @@ func (s *Series) Push(t int64, v float64) error {
 		log.Warnf("Data not valid,skip.T0=%d, data time=%d", s.T0, t)
 		return errors.New("Error time")
 	}
+
 	s.Lock()
 	defer s.Unlock()
-
+	s.dataNum++
 	if s.t == 0 {
 		// first point
 		s.t = t
@@ -136,8 +137,6 @@ func (s *Series) Push(t int64, v float64) error {
 
 	s.t = t
 	s.v = v
-
-	s.dataNum++
 
 	return nil
 }

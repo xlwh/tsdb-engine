@@ -13,7 +13,6 @@ var StorageInstance *Storage
 type Storage struct {
 	db     *leveldb.DB
 	option *g.Option
-	stop   chan int
 }
 
 func NewStorage(option *g.Option) (*Storage, error) {
@@ -53,8 +52,6 @@ func NewStorage(option *g.Option) (*Storage, error) {
 		return nil, err
 	}
 	s.db = db
-
-	s.stop = make(chan int, 1)
 
 	StorageInstance = s
 	return s, nil
@@ -119,6 +116,5 @@ func (s *Storage) DeleteBlock(name string) error {
 }
 
 func (s *Storage) Stop() {
-	s.stop <- 1
 	s.db.Close()
 }

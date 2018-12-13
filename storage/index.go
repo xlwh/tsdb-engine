@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/prometheus/common/log"
+	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"sync"
 	"time"
 )
 
-var index *Index
+var (
+	index     *Index
+	indexOnce sync.Once
+)
 
 type Index struct {
 	data map[string]*IndexItem
@@ -18,9 +21,10 @@ type Index struct {
 }
 
 func GetIndex() *Index {
-	if index == nil {
+	indexOnce.Do(func() {
 		index = NewIndex()
-	}
+	})
+
 	return index
 }
 
@@ -39,6 +43,7 @@ func (i *Index) load() {
 	metaData, err := StorageInstance.Get([]byte("meta"), nil)
 	if err != nil {
 		log.Warnf("No meta data")
+		return
 	}
 
 	var meta []string
@@ -49,6 +54,7 @@ func (i *Index) load() {
 	}
 
 	for _, key := range meta {
+		i.AddIndexItem(key)
 		idx := fmt.Sprintf("%s_index", key)
 		indexData, err := StorageInstance.Get([]byte(idx), nil)
 		if err != nil {
@@ -76,6 +82,7 @@ func (i *Index) load() {
 func (i *Index) GetIndexItem(uuid string) (*IndexItem, error) {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
+
 	if idx, found := i.data[uuid]; found {
 		return idx, nil
 	}
@@ -109,7 +116,6 @@ func (i *Index) Flush(force bool) {
 			log.Warnf("Marshal index error:%v", err)
 			continue
 		}
-
 		error := StorageInstance.Put([]byte(fmt.Sprintf("%s_index", k)), []byte(data), wo)
 		if err != nil {
 			log.Warnf("Save index error.%v", error)
@@ -125,20 +131,20 @@ func (i *Index) Flush(force bool) {
 		return
 	}
 
-	error := StorageInstance.Put([]byte("meta"), []byte(data), wo)
+	error := StorageInstance.Put([]byte("meta"), []byte(string(data)), wo)
 	if err != nil {
 		log.Warnf("Save meta error.%v", error)
 	}
 }
 
 type IndexItem struct {
-	uuid      string
+	Uuid      string `json:"uuid"`
 	inCsStart int64
 	inCsEnd   int64
 
 	lock              sync.RWMutex
 	memBlockIndexMap  map[string]*BlockIndex
-	diskBlockIndexMap map[string]*BlockIndex
+	DiskBlockIndexMap map[string]*BlockIndex `data"`
 }
 
 type BlockIndex struct {
@@ -154,11 +160,11 @@ type PosInfo struct {
 
 func NewIndexItem(uuid string) *IndexItem {
 	return &IndexItem{
-		uuid:              uuid,
+		Uuid:              uuid,
 		inCsStart:         0,
 		inCsEnd:           0,
 		memBlockIndexMap:  make(map[string]*BlockIndex),
-		diskBlockIndexMap: make(map[string]*BlockIndex),
+		DiskBlockIndexMap: make(map[string]*BlockIndex),
 	}
 }
 
@@ -171,7 +177,7 @@ func (idx *IndexItem) PutBlock(name string, start, end int64) error {
 	}
 
 	idx.memBlockIndexMap[name] = index
-	idx.diskBlockIndexMap[name] = index
+	idx.DiskBlockIndexMap[name] = index
 
 	idx.lock.Unlock()
 
@@ -186,7 +192,7 @@ func (idx *IndexItem) PutBlockToDisk(name string, start, end int64) error {
 		end,
 	}
 
-	idx.diskBlockIndexMap[name] = index
+	idx.DiskBlockIndexMap[name] = index
 
 	idx.lock.Unlock()
 
@@ -198,6 +204,14 @@ func (idx *IndexItem) UpdateCsRange(t int64) {
 		idx.inCsStart = -1
 		idx.inCsEnd = -1
 		return
+	}
+
+	if idx.inCsStart == 0 {
+		idx.inCsStart = t
+	}
+
+	if idx.inCsEnd == 0 {
+		idx.inCsEnd = t
 	}
 
 	if idx.inCsStart > t {
@@ -223,16 +237,14 @@ func (idx *IndexItem) Pos(start, end int64) ([]*PosInfo, error) {
 			pos = append(pos, &PosInfo{Pos: "mem", BlockName: v.BlockName})
 		}
 	}
-	for k, v := range idx.diskBlockIndexMap {
+	for k, v := range idx.DiskBlockIndexMap {
 		if !(start > v.ETime || end < v.STime) {
-			found[k] = v
 			if _, ok := found[k]; !ok {
 				pos = append(pos, &PosInfo{Pos: "disk", BlockName: v.BlockName})
 			}
 		}
 	}
 	idx.lock.RUnlock()
-
 	return pos, nil
 }
 
@@ -243,13 +255,13 @@ func (idx *IndexItem) gc(expireTime int64) {
 	for _, v := range idx.memBlockIndexMap {
 		if now >= v.ETime+expireTime {
 			delete(idx.memBlockIndexMap, v.BlockName)
-			delete(idx.diskBlockIndexMap, v.BlockName)
+			delete(idx.DiskBlockIndexMap, v.BlockName)
 		}
 	}
 }
 
 func (idx *IndexItem) Marshal() (string, error) {
-	d, err := json.Marshal(idx.diskBlockIndexMap)
+	d, err := json.Marshal(idx.DiskBlockIndexMap)
 	if err != nil {
 		return "", err
 	} else {

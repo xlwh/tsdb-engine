@@ -89,7 +89,7 @@ func (s *Series) Push(t int64, cnt, sum, max, min float64) error {
 	}
 	s.Lock()
 	defer s.Unlock()
-
+	s.dataNum++
 	if s.t == 0 {
 		// first point
 		s.t = t
@@ -238,7 +238,6 @@ func (s *Series) Push(t int64, cnt, sum, max, min float64) error {
 	s.sum = sum
 	s.max = max
 	s.min = min
-	s.dataNum++
 
 	return nil
 }

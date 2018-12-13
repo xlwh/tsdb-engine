@@ -1,8 +1,9 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
-	"github.com/prometheus/common/log"
+	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/xlwh/tsdb-engine/cs/simple"
 	"github.com/xlwh/tsdb-engine/cs/statistics"
@@ -46,8 +47,9 @@ func (m *MemTable) PutSimple(key string, t int64, v float64) error {
 	if series, found := m.memData[key]; found {
 		return series.putSimple(t, v)
 	} else {
-		m.memData[key] = newSeriesData(key, m.option.PointNumEachBlock)
-		return series.putSimple(t, v)
+		s := newSeriesData(key, m.option.PointNumEachBlock)
+		m.memData[key] = s
+		return s.putSimple(t, v)
 	}
 }
 
@@ -102,16 +104,22 @@ type SeriesData struct {
 }
 
 func newSeriesData(key string, maxCnt int64) *SeriesData {
-	return &SeriesData{
-		key:         key,
-		indexItem:   NewIndexItem(key),
-		PointNum:    0,
-		MaxPointNum: maxCnt,
-		blockMap:    make(map[string]*g.DataBlock),
+	index := GetIndex()
+	if index != nil {
+		idx := index.AddIndexItem(key)
+		return &SeriesData{
+			key:         key,
+			indexItem:   idx,
+			PointNum:    0,
+			MaxPointNum: maxCnt,
+			blockMap:    make(map[string]*g.DataBlock),
 
-		sTime: -1,
-		eTime: -1,
+			sTime: -1,
+			eTime: -1,
+		}
 	}
+
+	return nil
 }
 
 func (s *SeriesData) put(t int64, cnt, sum, max, min float64) error {
@@ -189,17 +197,37 @@ func (s *SeriesData) putSimple(t int64, v float64) error {
 		return error
 	}
 
-	if s.sTime > t {
+	if s.sTime > t || s.sTime == -1 {
 		s.sTime = t
 	}
-	if s.eTime < t {
+	if s.eTime < t || s.eTime == -1 {
 		s.eTime = t
 	}
 	s.PointNum++
 
-	s.indexItem.UpdateCsRange(t)
+	index := GetIndex()
+	if index != nil {
+		idx, err := index.GetIndexItem(s.key)
+		if err == nil {
+			idx.UpdateCsRange(t)
+		}
+	}
+
+	//s.indexItem.UpdateCsRange(t)
 
 	return nil
+}
+
+func (s *SeriesData) getIndex() (*IndexItem, error) {
+	index := GetIndex()
+	if index != nil {
+		idx, err := index.GetIndexItem(s.key)
+		if err == nil {
+			return idx, nil
+		}
+	}
+
+	return nil, errors.New("No index")
 }
 
 func (s *SeriesData) Sync(force bool) bool {
@@ -209,12 +237,16 @@ func (s *SeriesData) Sync(force bool) bool {
 		wo.Sync = true
 	}
 
-	if s.PointNum >= s.MaxPointNum {
-		s.simpleCs.Finish()
-		s.statisCs.Finish()
+	if s.PointNum >= s.MaxPointNum || force {
+		if s.statisCs != nil {
+			s.statisCs.Finish()
+		}
+
+		if s.simpleCs != nil {
+			s.simpleCs.Finish()
+		}
 
 		synced := true
-
 		blocks := make([]string, 0)
 
 		if s.simpleCs != nil && s.simpleCs.Len() > 0 {
@@ -231,12 +263,13 @@ func (s *SeriesData) Sync(force bool) bool {
 			s.lock.Lock()
 			s.blockMap[name] = block
 			s.lock.Unlock()
-
-			err := storage.Put([]byte(name), data, wo)
+			err := StorageInstance.Put([]byte(name), data, wo)
 			if err != nil {
+				log.Warnf("Error to write block.%v", err)
 				synced = false
+			} else {
+				blocks = append(blocks, name)
 			}
-			blocks = append(blocks, name)
 		}
 
 		if s.statisCs != nil && s.statisCs.Len() > 0 {
@@ -254,18 +287,23 @@ func (s *SeriesData) Sync(force bool) bool {
 			s.blockMap[name] = block
 			s.lock.Unlock()
 
-			err := storage.Put([]byte(name), data, wo)
+			err := StorageInstance.Put([]byte(name), data, wo)
 			if err != nil {
 				synced = false
+			} else {
+				blocks = append(blocks, name)
 			}
-
-			blocks = append(blocks, name)
 		}
 
 		// 只有数据成功写入了磁盘，才更新索引信息
 		if synced {
 			for _, name := range blocks {
-				s.indexItem.PutBlock(name, s.sTime, s.eTime)
+				idx, err := s.getIndex()
+				if err != nil {
+					log.Warnf("Index not found")
+					continue
+				}
+				idx.PutBlock(name, s.sTime, s.eTime)
 			}
 			s.indexItem.UpdateCsRange(-1)
 		}

@@ -71,20 +71,21 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 		option = NewOption()
 	}
 
+	_, err := storage.NewStorage(option)
+	if err != nil {
+		return nil, err
+	}
+
 	engine := &TsdbEngine{
 		opt:   option,
 		index: storage.GetIndex(),
+		stop:  make(chan bool, 1),
 	}
 	memTable, err := storage.NewMemtable(option)
 	if err != nil {
 		return nil, err
 	}
 	engine.memTable = memTable
-
-	_, err = storage.NewStorage(option)
-	if err != nil {
-		return nil, err
-	}
 
 	return engine, nil
 }
@@ -105,16 +106,16 @@ Loop:
 		case <-flushTimer.C:
 			t.memTable.Sync(false)
 		case <-t.stop:
-			t.memTable.Sync(true)
 			break Loop
 		}
 	}
 }
 
 func (eg *TsdbEngine) Put(key string, t int64, v float64) error {
-	if t < time.Now().UnixNano()/1e6-eg.opt.ExpireTime {
+	if t < time.Now().UnixNano()/1e6-eg.opt.ExpireTime*1000 {
 		return errors.New("Data expire")
 	}
+
 	return eg.memTable.PutSimple(key, t, v)
 }
 
@@ -129,7 +130,7 @@ func (eg *TsdbEngine) Get(key string, startTime, endTime int64) ([]*g.SimpleData
 	allPos, err := indexItem.Pos(startTime, endTime)
 	for _, pos := range allPos {
 		points, err := eg.getSimpleByPos(key, pos, startTime, endTime)
-		if err != nil {
+		if err == nil {
 			for _, p := range points {
 				result = append(result, p)
 			}
@@ -213,5 +214,8 @@ func (eg *TsdbEngine) GetStatics(key string, startTime, endTime int64) ([]*g.Dat
 
 func (eg *TsdbEngine) Close() {
 	eg.stop <- true
+	if eg.memTable != nil {
+		eg.memTable.Sync(true)
+	}
 	storage.StorageInstance.Stop()
 }

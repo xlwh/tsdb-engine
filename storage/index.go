@@ -6,37 +6,23 @@ import (
 	"fmt"
 	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/xlwh/tsdb-engine/g"
 	"sync"
 	"time"
-)
-
-var (
-	index     *Index
-	indexOnce sync.Once
 )
 
 type Index struct {
 	data map[string]*IndexItem
 	lock sync.RWMutex
-}
-
-func GetIndex() *Index {
-	indexOnce.Do(func() {
-		index = NewIndex()
-	})
-
-	return index
+	WG   sync.WaitGroup
 }
 
 func NewIndex() *Index {
 	idx := &Index{
 		data: make(map[string]*IndexItem),
 	}
-
+	idx.WG.Add(2)
 	// 加载索引数据
 	idx.load()
-
 	return idx
 }
 
@@ -55,7 +41,9 @@ func (i *Index) load() {
 	}
 
 	for _, key := range meta {
-		i.AddIndexItem(key)
+		idxItem := NewIndexItem(key)
+		i.AddIndexItem(key, idxItem)
+
 		idx := fmt.Sprintf("%s_index", key)
 		indexData, err := StorageInstance.Get([]byte(idx), nil)
 		if err != nil {
@@ -91,13 +79,10 @@ func (i *Index) GetIndexItem(uuid string) (*IndexItem, error) {
 	return nil, errors.New("No Index")
 }
 
-func (i *Index) AddIndexItem(uuid string) *IndexItem {
-	idx := NewIndexItem(uuid)
+func (i *Index) AddIndexItem(key string, idx *IndexItem) {
 	i.lock.Lock()
-	i.data[uuid] = NewIndexItem(uuid)
+	i.data[key] = idx
 	i.lock.Unlock()
-
-	return idx
 }
 
 func (i *Index) Flush(force bool) {
@@ -140,7 +125,7 @@ func (i *Index) Flush(force bool) {
 	}
 
 	if force {
-		g.WG.Done()
+		i.WG.Done()
 	}
 }
 
@@ -200,7 +185,6 @@ func (idx *IndexItem) PutBlockToDisk(name string, start, end int64) error {
 	}
 
 	idx.DiskBlockIndexMap[name] = index
-
 	idx.lock.Unlock()
 
 	return nil

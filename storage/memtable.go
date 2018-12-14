@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"errors"
 	"fmt"
 	log "github.com/cihub/seelog"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -16,14 +15,16 @@ import (
 type MemTable struct {
 	memData map[string]*SeriesData
 	option  *g.Option
+	index   *Index
 
 	lock sync.RWMutex
 }
 
-func NewMemtable(option *g.Option) (*MemTable, error) {
+func NewMemtable(option *g.Option, index *Index) (*MemTable, error) {
 	mem := &MemTable{
 		memData: make(map[string]*SeriesData),
 		option:  option,
+		index:   index,
 	}
 	return mem, nil
 }
@@ -35,7 +36,9 @@ func (m *MemTable) PutStatistics(key string, t int64, cnt, sum, max, min float64
 	if series, found := m.memData[key]; found {
 		return series.put(t, cnt, sum, max, min)
 	} else {
-		s := newSeriesData(key, m.option.PointNumEachBlock)
+		idxItem := NewIndexItem(key)
+		m.index.AddIndexItem(key, idxItem)
+		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem)
 		m.memData[key] = s
 		return s.put(t, cnt, sum, max, min)
 	}
@@ -48,7 +51,9 @@ func (m *MemTable) PutSimple(key string, t int64, v float64) error {
 	if series, found := m.memData[key]; found {
 		return series.putSimple(t, v)
 	} else {
-		s := newSeriesData(key, m.option.PointNumEachBlock)
+		idxItem := NewIndexItem(key)
+		m.index.AddIndexItem(key, idxItem)
+		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem)
 		m.memData[key] = s
 		return s.putSimple(t, v)
 	}
@@ -63,10 +68,12 @@ func (m *MemTable) Sync(force bool) {
 		for _, v := range m.memData {
 			v.Sync(force)
 		}
+		log.Debugf("Success close block")
+		m.index.WG.Done()
 	}
 
-	// 刷新索引数据到持久化存储
-	index.Flush(force)
+	m.index.Flush(force)
+	m.index.WG.Wait()
 }
 
 func (m *MemTable) Gc() {
@@ -104,20 +111,16 @@ type SeriesData struct {
 	eTime int64
 }
 
-func newSeriesData(key string, maxCnt int64) *SeriesData {
-	index := GetIndex()
-	if index != nil {
-		idx := index.AddIndexItem(key)
-		return &SeriesData{
-			key:         key,
-			indexItem:   idx,
-			PointNum:    0,
-			MaxPointNum: maxCnt,
-			blockMap:    make(map[string]*g.DataBlock),
+func newSeriesData(key string, maxCnt int64, idxItem *IndexItem) *SeriesData {
+	return &SeriesData{
+		key:         key,
+		indexItem:   idxItem,
+		PointNum:    0,
+		MaxPointNum: maxCnt,
+		blockMap:    make(map[string]*g.DataBlock),
 
-			sTime: -1,
-			eTime: -1,
-		}
+		sTime: -1,
+		eTime: -1,
 	}
 
 	return nil
@@ -205,33 +208,16 @@ func (s *SeriesData) putSimple(t int64, v float64) error {
 		s.eTime = t
 	}
 	s.PointNum++
-
-	index := GetIndex()
-	if index != nil {
-		idx, err := index.GetIndexItem(s.key)
-		if err == nil {
-			idx.UpdateCsRange(t)
-		}
-	}
-
-	//s.indexItem.UpdateCsRange(t)
+	s.indexItem.UpdateCsRange(t)
 
 	return nil
 }
 
-func (s *SeriesData) getIndex() (*IndexItem, error) {
-	index := GetIndex()
-	if index != nil {
-		idx, err := index.GetIndexItem(s.key)
-		if err == nil {
-			return idx, nil
-		}
+func (s *SeriesData) Sync(force bool) bool {
+	if s.statisCs == nil && s.simpleCs == nil {
+		return true
 	}
 
-	return nil, errors.New("No index")
-}
-
-func (s *SeriesData) Sync(force bool) bool {
 	wo := &opt.WriteOptions{}
 	// 强制刷到磁盘
 	if force {
@@ -299,12 +285,7 @@ func (s *SeriesData) Sync(force bool) bool {
 		// 只有数据成功写入了磁盘，才更新索引信息
 		if synced {
 			for _, name := range blocks {
-				idx, err := s.getIndex()
-				if err != nil {
-					log.Warnf("Index not found")
-					continue
-				}
-				idx.PutBlock(name, s.sTime, s.eTime)
+				s.indexItem.PutBlock(name, s.sTime, s.eTime)
 			}
 			s.indexItem.UpdateCsRange(-1)
 		}

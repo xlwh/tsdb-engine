@@ -1,11 +1,5 @@
 package g
 
-import (
-	"sync"
-)
-
-var WG sync.WaitGroup
-
 type Option struct {
 	DataDir           string
 	ExpireTime        int64

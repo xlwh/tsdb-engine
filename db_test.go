@@ -137,6 +137,7 @@ func Test_write_disk(t *testing.T) {
 	}
 
 	if len(points) != 2 {
+		t.Errorf("point num:%d", len(points))
 		t.Fail()
 		return
 	}
@@ -180,7 +181,6 @@ func Test_load_in_disk(t *testing.T) {
 	}
 
 	db2.Stop()
-	os.RemoveAll("./data")
 }
 
 func Test_simple_gc(t *testing.T) {

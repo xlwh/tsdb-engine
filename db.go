@@ -10,7 +10,6 @@ import (
 type TsdbEngine struct {
 	memTable *storage.MemTable
 	index    *storage.Index
-
 	opt *g.Option
 
 	stop chan bool
@@ -75,17 +74,16 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	idx := storage.NewIndex()
 	engine := &TsdbEngine{
 		opt:   option,
-		index: storage.GetIndex(),
+		index: idx,
 		stop:  make(chan bool, 1),
 	}
-	memTable, err := storage.NewMemtable(option)
+	memTable, err := storage.NewMemtable(option, idx)
 	if err != nil {
 		return nil, err
 	}
-	g.WG.Add(1)
 	engine.memTable = memTable
 
 	return engine, nil
@@ -217,12 +215,10 @@ func (eg *TsdbEngine) Flush() {
 	if eg.memTable != nil {
 		eg.memTable.Sync(true)
 	}
-	time.Sleep(time.Millisecond * 10)
 }
 
 func (eg *TsdbEngine) Stop() {
 	eg.Flush()
 	eg.stop <- true
-	g.WG.Wait()
 	storage.StorageInstance.Stop()
 }

@@ -2,7 +2,7 @@ package tsengine
 
 import (
 	"errors"
-	"github.com/prometheus/common/log"
+	log "github.com/cihub/seelog"
 	"github.com/xlwh/tsdb-engine/g"
 	"github.com/xlwh/tsdb-engine/storage"
 	"time"

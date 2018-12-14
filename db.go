@@ -2,6 +2,7 @@ package tsengine
 
 import (
 	"errors"
+	"github.com/prometheus/common/log"
 	"github.com/xlwh/tsdb-engine/g"
 	"github.com/xlwh/tsdb-engine/storage"
 	"time"
@@ -10,7 +11,7 @@ import (
 type TsdbEngine struct {
 	memTable *storage.MemTable
 	index    *storage.Index
-	opt *g.Option
+	opt      *g.Option
 
 	stop chan bool
 }
@@ -199,11 +200,14 @@ func (eg *TsdbEngine) GetStatics(key string, startTime, endTime int64) ([]*g.Dat
 
 	allPos, err := indexItem.Pos(startTime, endTime)
 	for _, pos := range allPos {
+		log.Debugf("Get in pos %s -> %s", pos.Pos, pos.BlockName)
 		points, err := eg.getByPos(key, pos, startTime, endTime)
 		if err == nil {
 			for _, p := range points {
 				result = append(result, p)
 			}
+		} else {
+			log.Debugf("Get by pos error:%v", err)
 		}
 	}
 

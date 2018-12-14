@@ -6,6 +6,7 @@ import (
 	"github.com/xlwh/tsdb-engine/cs/simple"
 	"github.com/xlwh/tsdb-engine/cs/statistics"
 	"github.com/xlwh/tsdb-engine/g"
+	"strings"
 )
 
 var StorageInstance *Storage
@@ -95,19 +96,34 @@ func (s *Storage) Read(key, name string, start, end int64) ([]*g.DataPoint, erro
 	if err != nil {
 		return nil, err
 	}
-	it, err := statistics.NewIterator(data)
-	if err != nil {
-		return nil, err
-	}
 
 	points := make([]*g.DataPoint, 0)
-	for it.Next() {
-		t, cnt, sum, max, min := it.Values()
-		if t >= start && t <= end {
-			points = append(points, &g.DataPoint{key, t, int64(cnt), sum, max, min})
+
+	if strings.Contains(name, "simple_index") {
+		it, err := simple.NewIterator(data)
+		if err != nil {
+			return nil, err
+		}
+
+		for it.Next() {
+			t, v := it.Values()
+			if t >= start && t <= end {
+				points = append(points, &g.DataPoint{key, t, 1, v, v, v})
+			}
+		}
+	} else {
+		it, err := statistics.NewIterator(data)
+		if err != nil {
+			return nil, err
+		}
+
+		for it.Next() {
+			t, cnt, sum, max, min := it.Values()
+			if t >= start && t <= end {
+				points = append(points, &g.DataPoint{key, t, int64(cnt), sum, max, min})
+			}
 		}
 	}
-
 	return points, nil
 }
 

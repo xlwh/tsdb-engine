@@ -76,7 +76,7 @@ func Test_statics_write_read(t *testing.T) {
 	db.Start()
 
 	err = db.PutStatics(NewPoint("test", time.Now().UnixNano()/1e6, int64(1), float64(1), float64(1), float64(1)))
-	err = db.PutStatics(NewPoint("test", time.Now().UnixNano()/1e6+60000, int64(1), float64(2), float64(2), float64(2)))
+	err = db.PutStatics(NewPoint("test", time.Now().UnixNano()/1e6+6000, int64(1), float64(2), float64(2), float64(2)))
 
 	if err != nil {
 		t.Errorf("put error:%v", err)
@@ -84,6 +84,33 @@ func Test_statics_write_read(t *testing.T) {
 	}
 
 	points, err := db.GetStatics("test", time.Now().UnixNano()/1e6, time.Now().UnixNano()/1e6+60000)
+
+	if err != nil {
+		t.Errorf("read error:%v", err)
+		t.Failed()
+	}
+
+	if len(points) != 2 {
+		t.Fail()
+		return
+	}
+
+	if points[1].Cnt != 2 {
+		t.Failed()
+	}
+
+	db.Stop()
+}
+
+func Test_statics_load_read(t *testing.T) {
+	db, err := NewDBEngine(nil)
+	if err != nil {
+		t.Errorf("Create engine error.%v", err)
+		t.Failed()
+	}
+
+	db.Start()
+	points, err := db.GetStatics("test", time.Now().UnixNano()/1e6-90000, time.Now().UnixNano()/1e6+600000)
 
 	if err != nil {
 		t.Errorf("read error:%v", err)
@@ -154,8 +181,8 @@ func Test_write_disk(t *testing.T) {
 
 func Test_load_in_disk(t *testing.T) {
 	// 重新加载数据
-	start := time.Now().UnixNano()/1e6 - 10000
-	end := time.Now().UnixNano()/1e6 + 70000
+	start := time.Now().UnixNano()/1e6 - 9000000
+	end := time.Now().UnixNano()/1e6 + 9000000
 	db2, err := NewDBEngine(nil)
 	if err != nil {
 		t.Errorf("Create engine error.%v", err)

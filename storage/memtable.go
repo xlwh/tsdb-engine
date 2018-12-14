@@ -73,7 +73,9 @@ func (m *MemTable) Sync(force bool) {
 	}
 
 	m.index.Flush(force)
-	m.index.WG.Wait()
+	if force {
+		m.index.WG.Wait()
+	}
 }
 
 func (m *MemTable) Gc() {

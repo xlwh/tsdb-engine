@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-var StorageInstance *Storage
-
 type Storage struct {
 	db     *leveldb.DB
 	option *g.Option
@@ -53,8 +51,6 @@ func NewStorage(option *g.Option) (*Storage, error) {
 		return nil, err
 	}
 	s.db = db
-
-	StorageInstance = s
 	return s, nil
 }
 
@@ -66,8 +62,12 @@ func (s *Storage) Put(key, value []byte, wo *opt.WriteOptions) error {
 	return s.db.Put([]byte(key), value, wo)
 }
 
-func (s *Storage) Get(key []byte, ro *opt.ReadOptions) (value []byte, err error) {
+func (s *Storage) Get(key []byte, ro *opt.ReadOptions) ([]byte, error) {
 	return s.db.Get(key, ro)
+}
+
+func (s *Storage) Dir() string {
+	return s.option.DataDir
 }
 
 func (s *Storage) ReadSimple(key, name string, start, end int64) ([]*g.SimpleDataPoint, error) {

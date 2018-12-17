@@ -11,23 +11,24 @@ import (
 )
 
 type Index struct {
-	data map[string]*IndexItem
-	lock sync.RWMutex
-	WG   sync.WaitGroup
+	data  map[string]*IndexItem
+	lock  sync.RWMutex
+	WG    sync.WaitGroup
+	store *Storage
 }
 
-func NewIndex() *Index {
+func NewIndex(store *Storage) *Index {
 	idx := &Index{
-		data: make(map[string]*IndexItem),
+		data:  make(map[string]*IndexItem),
+		store: store,
 	}
 	idx.WG.Add(2)
 	// 加载索引数据
-	idx.load()
 	return idx
 }
 
-func (i *Index) load() {
-	metaData, err := StorageInstance.Get([]byte("meta"), nil)
+func (i *Index) Load() {
+	metaData, err := i.store.Get([]byte("meta"), nil)
 	if err != nil {
 		log.Warnf("No meta data")
 		return
@@ -45,7 +46,7 @@ func (i *Index) load() {
 		i.AddIndexItem(key, idxItem)
 
 		idx := fmt.Sprintf("%s_index", key)
-		indexData, err := StorageInstance.Get([]byte(idx), nil)
+		indexData, err := i.store.Get([]byte(idx), nil)
 		if err != nil {
 			log.Warnf("Read index data error.%v", err)
 			continue
@@ -102,7 +103,7 @@ func (i *Index) Flush(force bool) {
 			log.Warnf("Marshal index error:%v", err)
 			continue
 		}
-		error := StorageInstance.Put([]byte(fmt.Sprintf("%s_index", k)), []byte(data), wo)
+		error := i.store.Put([]byte(fmt.Sprintf("%s_index", k)), []byte(data), wo)
 		if err != nil {
 			log.Warnf("Save index error.%v", error)
 		}
@@ -117,7 +118,7 @@ func (i *Index) Flush(force bool) {
 		return
 	}
 
-	error := StorageInstance.Put([]byte("meta"), []byte(string(data)), wo)
+	error := i.store.Put([]byte("meta"), []byte(string(data)), wo)
 	if err != nil {
 		log.Warnf("Save meta error.%v", error)
 	} else {

@@ -13,7 +13,8 @@ type TsdbEngine struct {
 	index    *storage.Index
 	opt      *g.Option
 
-	stop chan bool
+	stop  chan bool
+	store *storage.Storage
 }
 
 func NewOption() *g.Option {
@@ -71,15 +72,16 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 		option = NewOption()
 	}
 
-	_, err := storage.NewStorage(option)
+	store, err := storage.NewStorage(option)
 	if err != nil {
 		return nil, err
 	}
-	idx := storage.NewIndex()
+	idx := storage.NewIndex(store)
 	engine := &TsdbEngine{
 		opt:   option,
 		index: idx,
 		stop:  make(chan bool, 1),
+		store: store,
 	}
 	memTable, err := storage.NewMemtable(option, idx)
 	if err != nil {
@@ -91,6 +93,8 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 }
 
 func (t *TsdbEngine) Start() {
+	// 加载磁盘上的索引数据
+	t.index.Load()
 	go t.runTask()
 }
 
@@ -156,7 +160,7 @@ func (eg *TsdbEngine) getSimpleByPos(key string, pos *storage.PosInfo, start, en
 			return reader.ReadSimpleBlocks(blocks, start, end)
 		}
 	case "disk":
-		return storage.StorageInstance.ReadSimple(key, pos.BlockName, start, end)
+		return eg.store.ReadSimple(key, pos.BlockName, start, end)
 	}
 
 	return nil, nil
@@ -177,7 +181,7 @@ func (eg *TsdbEngine) getByPos(key string, pos *storage.PosInfo, start, end int6
 			return reader.ReadBlocks(blocks, start, end)
 		}
 	case "disk":
-		return storage.StorageInstance.Read(key, pos.BlockName, start, end)
+		return eg.store.Read(key, pos.BlockName, start, end)
 	}
 
 	return nil, nil
@@ -224,5 +228,5 @@ func (eg *TsdbEngine) Flush() {
 func (eg *TsdbEngine) Stop() {
 	eg.Flush()
 	eg.stop <- true
-	storage.StorageInstance.Stop()
+	eg.store.Stop()
 }

@@ -234,6 +234,70 @@ func Test_simple_gc(t *testing.T) {
 	db.Stop()
 }
 
+func Test_MultipleEngine(t *testing.T) {
+	engines := make(map[int64]*TsdbEngine)
+	for i := 0; i < 10; i++ {
+		opt := NewOption()
+		opt.DataDir = fmt.Sprintf("./data/%d", i)
+		opt.ExpireTime = 30
+		opt.PointNumEachBlock = 10
+		opt.GcInterval = 2
+
+		db, err := NewDBEngine(opt)
+		if err != nil {
+			t.Errorf("Create engine error.%v", err)
+			t.Failed()
+		}
+		db.Start()
+
+		engines[int64(i)] = db
+	}
+
+	engines[3].Put("test", time.Now().UnixNano()/1e6-1000, 10)
+
+	engines[0].Put("test", time.Now().UnixNano()/1e6, 20)
+	engines[0].Put("test", time.Now().UnixNano()/1e6+60000, 30)
+
+	for i := 0; i < 10; i++ {
+		engines[int64(i)].Stop()
+	}
+}
+
+func Test_MultipleEngine_load(t *testing.T) {
+	engines := make(map[int64]*TsdbEngine)
+	for i := 0; i < 10; i++ {
+		opt := NewOption()
+		opt.DataDir = fmt.Sprintf("./data/%d", i)
+		opt.ExpireTime = 30
+		opt.PointNumEachBlock = 10
+		opt.GcInterval = 2
+
+		db, err := NewDBEngine(opt)
+		if err != nil {
+			t.Errorf("Create engine error.%v", err)
+			t.Failed()
+		}
+		db.Start()
+
+		engines[int64(i)] = db
+	}
+
+	time.Sleep(time.Millisecond * 10)
+
+	points, err := engines[0].Get("test", time.Now().UnixNano()/1e6-900000, time.Now().UnixNano()/1e6+9000000)
+	if err != nil {
+		fmt.Println("Get data error.", err.Error())
+	}
+
+	for _, p := range points {
+		fmt.Println(p.Timestamp, p.Value)
+	}
+
+	for i := 0; i < 10; i++ {
+		engines[int64(i)].Stop()
+	}
+}
+
 func Benchmark_simple_write(b *testing.B) {
 	os.RemoveAll("./data")
 	opt := NewOption()

@@ -16,6 +16,7 @@ type MemTable struct {
 	memData map[string]*SeriesData
 	option  *g.Option
 	index   *Index
+	store   *Storage
 
 	lock sync.RWMutex
 }
@@ -25,6 +26,7 @@ func NewMemtable(option *g.Option, index *Index) (*MemTable, error) {
 		memData: make(map[string]*SeriesData),
 		option:  option,
 		index:   index,
+		store:   index.store,
 	}
 	return mem, nil
 }
@@ -38,7 +40,7 @@ func (m *MemTable) PutStatistics(key string, t int64, cnt, sum, max, min float64
 	} else {
 		idxItem := NewIndexItem(key)
 		m.index.AddIndexItem(key, idxItem)
-		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem)
+		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem, m.index)
 		m.memData[key] = s
 		return s.put(t, cnt, sum, max, min)
 	}
@@ -53,7 +55,7 @@ func (m *MemTable) PutSimple(key string, t int64, v float64) error {
 	} else {
 		idxItem := NewIndexItem(key)
 		m.index.AddIndexItem(key, idxItem)
-		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem)
+		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem, m.index)
 		m.memData[key] = s
 		return s.putSimple(t, v)
 	}
@@ -111,15 +113,17 @@ type SeriesData struct {
 
 	sTime int64
 	eTime int64
+	index *Index
 }
 
-func newSeriesData(key string, maxCnt int64, idxItem *IndexItem) *SeriesData {
+func newSeriesData(key string, maxCnt int64, idxItem *IndexItem, index *Index) *SeriesData {
 	return &SeriesData{
 		key:         key,
 		indexItem:   idxItem,
 		PointNum:    0,
 		MaxPointNum: maxCnt,
 		blockMap:    make(map[string]*g.DataBlock),
+		index:       index,
 
 		sTime: -1,
 		eTime: -1,
@@ -153,7 +157,7 @@ func (s *SeriesData) gc(expireTime int64) {
 		// delete in mem
 		delete(s.blockMap, name)
 		// delete in disk
-		error := StorageInstance.DeleteBlock(name)
+		error := s.index.store.DeleteBlock(name)
 		if error != nil {
 			log.Warnf("Delete data in disk error.%v", error)
 		}
@@ -252,7 +256,7 @@ func (s *SeriesData) Sync(force bool) bool {
 			s.lock.Lock()
 			s.blockMap[name] = block
 			s.lock.Unlock()
-			err := StorageInstance.Put([]byte(name), data, wo)
+			err := s.index.store.Put([]byte(name), data, wo)
 			if err != nil {
 				log.Warnf("Error to write block.%v", err)
 				synced = false
@@ -276,7 +280,7 @@ func (s *SeriesData) Sync(force bool) bool {
 			s.blockMap[name] = block
 			s.lock.Unlock()
 
-			err := StorageInstance.Put([]byte(name), data, wo)
+			err := s.index.store.Put([]byte(name), data, wo)
 			if err != nil {
 				synced = false
 			} else {

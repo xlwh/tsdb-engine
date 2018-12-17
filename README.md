@@ -46,7 +46,7 @@ go get github.com/xlwh/tsdb-engine
     	fmt.Println(point.ToString())
     }
 	
-	db.Close()
+	db.Stop()
 
 # 底层LevelDB的一些配置选项
 	// 下面是底层LevelDB的配置参数

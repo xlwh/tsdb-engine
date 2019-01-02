@@ -148,7 +148,7 @@ func (s *SeriesData) gc(expireTime int64) {
 	toDelete := make([]string, 0)
 
 	for k, v := range s.blockMap {
-		if now >= v.ETime+expireTime {
+		if now >= v.ETime+expireTime * 1000 {
 			toDelete = append(toDelete, k)
 		}
 	}

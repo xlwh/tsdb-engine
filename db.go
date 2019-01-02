@@ -116,7 +116,7 @@ Loop:
 }
 
 func (eg *TsdbEngine) Put(key string, t int64, v float64) error {
-	if t < time.Now().UnixNano()/1e6-eg.opt.ExpireTime*1000 {
+	if t < time.Now().UnixNano()/1e9-eg.opt.ExpireTime*1000 {
 		return errors.New("Data expire")
 	}
 

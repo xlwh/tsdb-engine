@@ -241,11 +241,11 @@ func (idx *IndexItem) Pos(start, end int64) ([]*PosInfo, error) {
 }
 
 func (idx *IndexItem) gc(expireTime int64) {
-	now := time.Now().UnixNano() / 1e6
+	now := time.Now().UnixNano() / 1e9
 
 	// Del index
 	for _, v := range idx.memBlockIndexMap {
-		if now >= v.ETime+expireTime {
+		if now >= v.ETime+expireTime * 1000 {
 			delete(idx.memBlockIndexMap, v.BlockName)
 			delete(idx.DiskBlockIndexMap, v.BlockName)
 		}

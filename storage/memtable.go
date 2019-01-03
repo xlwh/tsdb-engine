@@ -256,6 +256,8 @@ func (s *SeriesData) Sync(force bool) bool {
 			s.lock.Lock()
 			s.blockMap[name] = block
 			s.lock.Unlock()
+
+
 			err := s.index.store.Put([]byte(name), data, wo)
 			if err != nil {
 				log.Warnf("Error to write block.%v", err)
@@ -323,7 +325,9 @@ func (s *SeriesData) ReadSimpleBlocks(names []string, start, end int64) ([]*g.Si
 
 	for _, name := range names {
 		if block, found := s.blockMap[name]; found {
-			it, err := simple.NewIterator(block.Data)
+			buf := make([]byte, len(block.Data))
+			copy(buf, block.Data)
+			it, err := simple.NewIterator(buf)
 			if err != nil {
 				log.Warnf("Parse block error.%v", err)
 				continue
@@ -374,7 +378,9 @@ func (s *SeriesData) ReadBlocks(names []string, start, end int64) ([]*g.DataPoin
 	for _, name := range names {
 		if block, found := s.blockMap[name]; found {
 			if strings.Contains(block.Name, "simple") {
-				it, err := simple.NewIterator(block.Data)
+				buf := make([]byte, len(block.Data))
+				copy(buf, block.Data)
+				it, err := simple.NewIterator(buf)
 				if err != nil {
 					log.Warnf("Parse block error.%v", err)
 					continue
@@ -386,7 +392,9 @@ func (s *SeriesData) ReadBlocks(names []string, start, end int64) ([]*g.DataPoin
 					}
 				}
 			} else {
-				it, err := statistics.NewIterator(block.Data)
+				buf := make([]byte, len(block.Data))
+				copy(buf, block.Data)
+				it, err := statistics.NewIterator(buf)
 				if err != nil {
 					log.Warnf("Parse block error.%v", err)
 					continue

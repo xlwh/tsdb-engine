@@ -241,7 +241,7 @@ func (idx *IndexItem) Pos(start, end int64) ([]*PosInfo, error) {
 }
 
 func (idx *IndexItem) gc(expireTime int64) {
-	now := time.Now().UnixNano() / 1e9
+	now := time.Now().UnixNano() / 1e6
 
 	// Del index
 	for _, v := range idx.memBlockIndexMap {

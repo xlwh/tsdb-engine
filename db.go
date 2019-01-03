@@ -25,6 +25,7 @@ func NewOption() *g.Option {
 	o.PointNumEachBlock = 10
 	o.GcInterval = 2
 	o.FlushInterVal = 60 // 主动刷盘时间
+	o.UseMemCache = false
 
 	// 下面是LevelDB相关的一些默认配置
 	o.BlockCacheCapacity = 8 * 1024 * 1024

@@ -6,6 +6,7 @@ type Option struct {
 	PointNumEachBlock int64
 	GcInterval        int64
 	FlushInterVal     int64
+	UseMemCache       bool   // 是否用内存cache
 
 	// 下面是底层LevelDB的配置参数
 

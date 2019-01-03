@@ -38,7 +38,7 @@ func (m *MemTable) PutStatistics(key string, t int64, cnt, sum, max, min float64
 	if series, found := m.memData[key]; found {
 		return series.put(t, cnt, sum, max, min)
 	} else {
-		idxItem := NewIndexItem(key)
+		idxItem := NewIndexItem(key, m.option.UseMemCache)
 		m.index.AddIndexItem(key, idxItem)
 		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem, m.index)
 		m.memData[key] = s
@@ -53,7 +53,7 @@ func (m *MemTable) PutSimple(key string, t int64, v float64) error {
 	if series, found := m.memData[key]; found {
 		return series.putSimple(t, v)
 	} else {
-		idxItem := NewIndexItem(key)
+		idxItem := NewIndexItem(key, m.option.UseMemCache)
 		m.index.AddIndexItem(key, idxItem)
 		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem, m.index)
 		m.memData[key] = s
@@ -230,6 +230,7 @@ func (s *SeriesData) Sync(force bool) bool {
 		wo.Sync = true
 	}
 
+	fmt.Println(s.MaxPointNum)
 	if s.PointNum >= s.MaxPointNum || force {
 		if s.statisCs != nil {
 			s.statisCs.Finish()
@@ -253,11 +254,14 @@ func (s *SeriesData) Sync(force bool) bool {
 				Data:  data,
 			}
 
-			s.lock.Lock()
-			s.blockMap[name] = block
-			s.lock.Unlock()
+			// 写内存缓存
+			if s.indexItem.UseMemCache {
+				s.lock.Lock()
+				s.blockMap[name] = block
+				s.lock.Unlock()
+			}
 
-
+			// 写LevelDB
 			err := s.index.store.Put([]byte(name), data, wo)
 			if err != nil {
 				log.Warnf("Error to write block.%v", err)
@@ -278,9 +282,11 @@ func (s *SeriesData) Sync(force bool) bool {
 				Data:  data,
 			}
 
-			s.lock.Lock()
-			s.blockMap[name] = block
-			s.lock.Unlock()
+			if s.indexItem.UseMemCache {
+				s.lock.Lock()
+				s.blockMap[name] = block
+				s.lock.Unlock()
+			}
 
 			err := s.index.store.Put([]byte(name), data, wo)
 			if err != nil {

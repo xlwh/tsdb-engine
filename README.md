@@ -10,6 +10,7 @@ go get github.com/xlwh/tsdb-engine
 	opt.PointNumEachBlock = 10   // 在memTable中的最近的数据点的个数，大于这个点的数据将会被刷写到磁盘
 	opt.GcInterval = 2           // 执行过期数据回收检查的时间间隔，单位秒
 	opt.FlushInterval = 60       // 自动刷新内存索引数据到磁盘的周期
+	opt.UseMemCache = false      // 是否使用内存来缓存数据
 
 	db, err := tsengine.NewDBEngine(opt)
 	if err != nil {

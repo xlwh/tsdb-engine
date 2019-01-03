@@ -42,7 +42,7 @@ func (i *Index) Load() {
 	}
 
 	for _, key := range meta {
-		idxItem := NewIndexItem(key)
+		idxItem := NewIndexItem(key, i.store.option.UseMemCache)
 		i.AddIndexItem(key, idxItem)
 
 		idx := fmt.Sprintf("%s_index", key)
@@ -134,6 +134,7 @@ type IndexItem struct {
 	Uuid      string `json:"uuid"`
 	inCsStart int64
 	inCsEnd   int64
+	UseMemCache bool
 
 	lock              sync.RWMutex
 	memBlockIndexMap  map[string]*BlockIndex
@@ -151,13 +152,14 @@ type PosInfo struct {
 	BlockName string
 }
 
-func NewIndexItem(uuid string) *IndexItem {
+func NewIndexItem(uuid string, useCache bool) *IndexItem {
 	return &IndexItem{
 		Uuid:              uuid,
 		inCsStart:         0,
 		inCsEnd:           0,
 		memBlockIndexMap:  make(map[string]*BlockIndex),
 		DiskBlockIndexMap: make(map[string]*BlockIndex),
+		UseMemCache: useCache,
 	}
 }
 
@@ -169,7 +171,9 @@ func (idx *IndexItem) PutBlock(name string, start, end int64) error {
 		end,
 	}
 
-	idx.memBlockIndexMap[name] = index
+	if idx.UseMemCache {
+		idx.memBlockIndexMap[name] = index
+	}
 	idx.DiskBlockIndexMap[name] = index
 
 	idx.lock.Unlock()

@@ -64,8 +64,9 @@ func Test_simple_flush(t *testing.T) {
 	opt := NewOption()
 	opt.DataDir = "./data"
 	opt.ExpireTime = 3600
-	opt.PointNumEachBlock = 5
+	opt.PointNumEachBlock = 20
 	opt.GcInterval = 2
+	opt.UseMemCache = false
 
 	db, err := NewDBEngine(opt)
 	if err != nil {

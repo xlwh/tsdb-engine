@@ -27,48 +27,6 @@ func NewIndex(store *Storage) *Index {
 	return idx
 }
 
-func (i *Index) Load() {
-	metaData, err := i.store.Get([]byte("meta"), nil)
-	if err != nil {
-		log.Warnf("No meta data")
-		return
-	}
-
-	var meta []string
-	err = json.Unmarshal(metaData, &meta)
-	if err != nil {
-		log.Warnf("Unmarshal meta data error.%v", err)
-		return
-	}
-
-	for _, key := range meta {
-		idxItem := NewIndexItem(key, i.store.option.UseMemCache)
-		i.AddIndexItem(key, idxItem)
-
-		idx := fmt.Sprintf("%s_index", key)
-		indexData, err := i.store.Get([]byte(idx), nil)
-		if err != nil {
-			log.Warnf("Read index data error.%v", err)
-			continue
-		}
-
-		var indexItem map[string]*BlockIndex = make(map[string]*BlockIndex)
-		err = json.Unmarshal(indexData, &indexItem)
-		if err != nil {
-			log.Warnf("Unmarsha index data error.%v", err)
-			continue
-		}
-
-		item, err := i.GetIndexItem(key)
-		// 还原索引数据到内存,只更新磁盘索引
-		if err == nil {
-			for _, v := range indexItem {
-				item.PutBlockToDisk(v.BlockName, v.STime, v.ETime)
-			}
-		}
-	}
-}
-
 func (i *Index) GetIndexItem(uuid string) (*IndexItem, error) {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
@@ -131,9 +89,9 @@ func (i *Index) Flush(force bool) {
 }
 
 type IndexItem struct {
-	Uuid      string `json:"uuid"`
-	inCsStart int64
-	inCsEnd   int64
+	Uuid        string `json:"uuid"`
+	inCsStart   int64
+	inCsEnd     int64
 	UseMemCache bool
 
 	lock              sync.RWMutex
@@ -159,7 +117,7 @@ func NewIndexItem(uuid string, useCache bool) *IndexItem {
 		inCsEnd:           0,
 		memBlockIndexMap:  make(map[string]*BlockIndex),
 		DiskBlockIndexMap: make(map[string]*BlockIndex),
-		UseMemCache: useCache,
+		UseMemCache:       useCache,
 	}
 }
 
@@ -249,7 +207,7 @@ func (idx *IndexItem) gc(expireTime int64) {
 
 	// Del index
 	for _, v := range idx.memBlockIndexMap {
-		if now >= v.ETime+expireTime * 1000 {
+		if now >= v.ETime+expireTime*1000 {
 			delete(idx.memBlockIndexMap, v.BlockName)
 			delete(idx.DiskBlockIndexMap, v.BlockName)
 		}

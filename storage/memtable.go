@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	log "github.com/cihub/seelog"
+	"github.com/pkg/errors"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/xlwh/tsdb-engine/cs/simple"
 	"github.com/xlwh/tsdb-engine/cs/statistics"
@@ -58,6 +60,50 @@ func (m *MemTable) PutSimple(key string, t int64, v float64) error {
 		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem, m.index)
 		m.memData[key] = s
 		return s.putSimple(t, v)
+	}
+}
+
+func (m *MemTable) Load() {
+	metaData, err := m.store.Get([]byte("meta"), nil)
+	if err != nil {
+		log.Warnf("No meta data")
+		return
+	}
+
+	var meta []string
+	err = json.Unmarshal(metaData, &meta)
+	if err != nil {
+		log.Warnf("Unmarshal meta data error.%v", err)
+		return
+	}
+
+	for _, key := range meta {
+		idxItem := NewIndexItem(key, m.option.UseMemCache)
+		m.index.AddIndexItem(key, idxItem)
+		s := newSeriesData(key, m.option.PointNumEachBlock, idxItem, m.index)
+		m.memData[key] = s
+
+		idx := fmt.Sprintf("%s_index", key)
+		indexData, err := m.store.Get([]byte(idx), nil)
+		if err != nil {
+			log.Warnf("Read index data error.%v", err)
+			continue
+		}
+
+		var indexItem map[string]*BlockIndex = make(map[string]*BlockIndex)
+		err = json.Unmarshal(indexData, &indexItem)
+		if err != nil {
+			log.Warnf("Unmarsha index data error.%v", err)
+			continue
+		}
+
+		item, err := m.index.GetIndexItem(key)
+		// 还原索引数据到内存,只更新磁盘索引
+		if err == nil {
+			for _, v := range indexItem {
+				item.PutBlockToDisk(v.BlockName, v.STime, v.ETime)
+			}
+		}
 	}
 }
 
@@ -148,7 +194,7 @@ func (s *SeriesData) gc(expireTime int64) {
 	toDelete := make([]string, 0)
 
 	for k, v := range s.blockMap {
-		if now >= v.ETime+expireTime * 1000 {
+		if now >= v.ETime+expireTime*1000 {
 			toDelete = append(toDelete, k)
 		}
 	}
@@ -230,7 +276,6 @@ func (s *SeriesData) Sync(force bool) bool {
 		wo.Sync = true
 	}
 
-	fmt.Println(s.MaxPointNum)
 	if s.PointNum >= s.MaxPointNum || force {
 		if s.statisCs != nil {
 			s.statisCs.Finish()
@@ -312,6 +357,9 @@ func (s *SeriesData) Sync(force bool) bool {
 }
 
 func (s *SeriesData) ReadCsSimple(start, end int64) ([]*g.SimpleDataPoint, error) {
+	if s.simpleCs == nil {
+		return nil, errors.New("No cs")
+	}
 	it := s.simpleCs.Iter()
 	points := make([]*g.SimpleDataPoint, 0)
 	for it.Next() {

@@ -78,8 +78,8 @@ func Test_simple_flush(t *testing.T) {
 
 	now := time.Now().Unix() * 1000
 
-	for i := 1; i < 31;i++ {
-		err = db.Put("test", now + int64(i * 1000), float64(i))
+	for i := 1; i < 31; i++ {
+		err = db.Put("test", now+int64(i*1000), float64(i))
 
 		if err != nil {
 			t.Errorf("put error:%v", err)
@@ -92,7 +92,7 @@ func Test_simple_flush(t *testing.T) {
 		t.Failed()
 	}
 
-	points, err := db.Get("test", now, now + 100 * 1000)
+	points, err := db.Get("test", now, now+100*1000)
 
 	if err != nil {
 		t.Errorf("read error:%v", err)
@@ -103,8 +103,7 @@ func Test_simple_flush(t *testing.T) {
 		fmt.Println("Read:", p.Key, p.Timestamp, p.Value)
 	}
 
-
-	points, err = db.Get("test", now, now + 100 * 1000)
+	points, err = db.Get("test", now, now+100*1000)
 
 	if err != nil {
 		t.Errorf("read error:%v", err)
@@ -116,6 +115,101 @@ func Test_simple_flush(t *testing.T) {
 	}
 
 	db.Stop()
+}
+
+func Test_simple_restart(t *testing.T) {
+	os.RemoveAll("./data")
+	opt := NewOption()
+	opt.DataDir = "./data"
+	opt.ExpireTime = 3600
+	opt.PointNumEachBlock = 20
+	opt.GcInterval = 2
+	opt.UseMemCache = false
+
+	db, err := NewDBEngine(opt)
+	if err != nil {
+		t.Errorf("Create engine error.%v", err)
+		t.Failed()
+	}
+
+	db.Start()
+
+	now := time.Now().Unix() * 1000
+
+	for i := 1; i < 31; i++ {
+		err = db.Put("test", now+int64(i*1000), float64(i))
+
+		if err != nil {
+			t.Errorf("put error:%v", err)
+			t.Failed()
+		}
+	}
+
+	if err != nil {
+		t.Errorf("put error:%v", err)
+		t.Failed()
+	}
+
+	points, err := db.Get("test", now, now+100*1000)
+
+	if err != nil {
+		t.Errorf("read error:%v", err)
+		t.Failed()
+	}
+
+	for _, p := range points {
+		fmt.Println("Read:", p.Key, p.Timestamp, p.Value)
+	}
+
+	db.Stop()
+
+	time.Sleep(time.Millisecond * 10)
+}
+
+func Test_simple_rd(t *testing.T) {
+	opt := NewOption()
+	opt.DataDir = "./data"
+	opt.ExpireTime = 3600
+	opt.PointNumEachBlock = 5
+	opt.GcInterval = 2
+	opt.UseMemCache = false
+	now := time.Now().Unix()*1000 - 100000000000000
+	db, err := NewDBEngine(opt)
+	if err != nil {
+		t.Errorf("Create engine error.%v", err)
+		t.Failed()
+	}
+
+	db.Start()
+
+	points, err := db.Get("test", now, now+100*10000000000000)
+
+	if err != nil {
+		t.Errorf("read error:%v", err)
+		t.Failed()
+	}
+
+	for _, p := range points {
+		fmt.Println("Read:", p.Key, p.Timestamp, p.Value)
+	}
+
+	now = time.Now().Unix() * 1000
+
+	for i := 1; i < 31; i++ {
+		err = db.Put("test", now+int64(i*1000), float64(i*100))
+
+		if err != nil {
+			t.Errorf("put error:%v", err)
+			t.Failed()
+		}
+	}
+
+	for _, p := range points {
+		fmt.Println("Read2:", p.Key, p.Timestamp, p.Value)
+	}
+
+	db.Stop()
+
 }
 
 func Test_statics_write_read(t *testing.T) {

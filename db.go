@@ -95,7 +95,7 @@ func NewDBEngine(option *g.Option) (*TsdbEngine, error) {
 
 func (t *TsdbEngine) Start() {
 	// 加载磁盘上的索引数据
-	t.index.Load()
+	t.memTable.Load()
 	go t.runTask()
 }
 

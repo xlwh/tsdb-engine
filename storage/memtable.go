@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	log "github.com/cihub/seelog"
-	"github.com/pkg/errors"
+	"errors"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/xlwh/tsdb-engine/cs/simple"
 	"github.com/xlwh/tsdb-engine/cs/statistics"
